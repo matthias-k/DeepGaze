@@ -138,8 +138,7 @@ def deepgaze2e(pretrained=True):
     model = MixtureModel(backbone_models)
 
     if pretrained:
-        raise NotImplementedError()
-        model.load_state_dict(model_zoo.load_url(None))
+        model.load_state_dict(model_zoo.load_url('https://github.com/matthias-k/DeepGaze/releases/download/v1.0.0/deepgaze2e.pth'))
 
     return model
 

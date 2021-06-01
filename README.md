@@ -11,13 +11,14 @@ import torch
 
 DEVICE = 'cuda'
 
-model = deepgaze_pytorch.deepgaze2e(pretrained=False).to(DEVICE)
-model.load_state_dict(torch.load('deepgaze2e.pth'))
+model = deepgaze_pytorch.deepgaze2e(pretrained=True).to(DEVICE)
 
 image = face()
 
 # load precomputed centerbias log density (from MIT1003) over a 1024x1024 image
-centerbias_template = np.load('centerbias.npy')
+# you can download the centerbias from https://github.com/matthias-k/DeepGaze/releases/download/v1.0.0/centerbias_mit1003.npy
+# alternatively, you can use a uniform centerbias via `centerbias_template = np.zeros((1024, 1024))`.
+centerbias_template = np.load('centerbias_mit1003.npy')
 # rescale to match image size
 centerbias = zoom(centerbias_template, (image.shape[0]/centerbias_template.shape[0], image.shape[1]/centerbias_template.shape[1]), order=0, mode='nearest')
 # renormalize log density
