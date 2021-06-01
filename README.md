@@ -16,7 +16,7 @@ model.load_state_dict(torch.load('deepgaze2e.pth'))
 
 image = face()
 
-# load precomputed log density over a 1024x1024 image
+# load precomputed centerbias log density (from MIT1003) over a 1024x1024 image
 centerbias_template = np.load('centerbias.npy')
 # rescale to match image size
 centerbias = zoom(centerbias_template, (image.shape[0]/centerbias_template.shape[0], image.shape[1]/centerbias_template.shape[1]), order=0, mode='nearest')
