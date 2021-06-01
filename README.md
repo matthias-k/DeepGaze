@@ -6,21 +6,27 @@ This is how use the pretained DeepGaze IIE model:
 
 ```python
 from scipy.misc import face
+from scipy.ndimage import zoom
 import torch
 
 DEVICE = 'cuda'
-
-    model_class = deepgaze_pytorch.deepgaze2e
-
 
 model = deepgaze_pytorch.deepgaze2e(pretrained=False).to(DEVICE)
 model.load_state_dict(torch.load('deepgaze2e.pth'))
 
 image = face()
-input_tensor = torch.tensor([image.transpose(2, 0, 1)]).to(DEVICE)
-centerbias_log_density = torch.ones((1, 768, 1024)).to(DEVICE)
 
-log_density = model(input_tensor, centerbias_log_density))
+# load precomputed log density over a 1024x1024 image
+centerbias_template = np.load('centerbias.npy')
+# rescale to match image size
+centerbias = zoom(centerbias_template, (image.shape[0]/centerbias_template.shape[0], image.shape[1]/centerbias_template.shape[1]), order=0, mode='nearest')
+# renormalize log density
+centerbias -= logsumexp(centerbias)
+
+image_tensor = torch.tensor([image.transpose(2, 0, 1)]).to(DEVICE)
+centerbias_tensor = torch.tensor([centerbias]).to(DEVICE)
+
+log_density_prediction = model(image_tensor, centerbias_tensor))
 ```
 
 If you use these models, please cite the according papers:
