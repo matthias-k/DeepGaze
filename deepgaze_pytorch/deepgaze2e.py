@@ -9,7 +9,7 @@ import torch.nn.functional as F
 
 from torch.utils import model_zoo
 
-from .deepgaze import FeatureExtractor, Finalizer, DeepGazeIIIMixture, MixtureModel
+from .modules import FeatureExtractor, Finalizer, DeepGazeIIIMixture, MixtureModel
 
 from .layers import (
     Conv2dMultiInput,
@@ -69,12 +69,12 @@ def build_saliency_network(input_channels):
         ('conv0', nn.Conv2d(input_channels, 8, (1, 1), bias=False)),
         ('bias0', Bias(8)),
         ('softplus0', nn.Softplus()),
-    
+
         ('layernorm1', LayerNorm(8)),
         ('conv1', nn.Conv2d(8, 16, (1, 1), bias=False)),
         ('bias1', Bias(16)),
         ('softplus1', nn.Softplus()),
-    
+
         ('layernorm2', LayerNorm(16)),
         ('conv2', nn.Conv2d(16, 1, (1, 1), bias=False)),
         ('bias2', Bias(1)),
@@ -88,17 +88,14 @@ def build_fixation_selection_network():
         ('conv0', Conv2dMultiInput([1, 0], 128, (1, 1), bias=False)),
         ('bias0', Bias(128)),
         ('softplus0', nn.Softplus()),
-    
+
         ('layernorm1', LayerNorm(128)),
         ('conv1', nn.Conv2d(128, 16, (1, 1), bias=False)),
         ('bias1', Bias(16)),
         ('softplus1', nn.Softplus()),
-    
-        #('layernorm2', LayerNorm(16)),
+
         ('conv2', nn.Conv2d(16, 1, (1, 1), bias=False)),
     ]))
-
-
 
 
 def build_deepgaze_mixture(backbone_config, components=10):
@@ -133,15 +130,19 @@ def build_deepgaze_mixture(backbone_config, components=10):
     )
 
 
-def deepgaze2e(pretrained=True):
-    backbone_models = [build_deepgaze_mixture(backbone_config, components=3 * 10) for backbone_config in BACKBONES]
-    model = MixtureModel(backbone_models)
+class DeepGazeIIE(MixtureModel):
+    """DeepGazeIIE model
 
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url('https://github.com/matthias-k/DeepGaze/releases/download/v1.0.0/deepgaze2e.pth'))
+    :note
+    See Linardos, A., Kümmerer, M., Press, O., & Bethge, M. (2021). Calibrated prediction in and out-of-domain for state-of-the-art saliency modeling. ArXiv:2105.12441 [Cs], http://arxiv.org/abs/2105.12441
+    """
+    def __init__(self, pretrained=True):
+        # we average over 3 instances per backbone, each instance has 10 crossvalidation folds
+        backbone_models = [build_deepgaze_mixture(backbone_config, components=3 * 10) for backbone_config in BACKBONES]
+        super().__init__(backbone_models)
 
-    return model
-
+        if pretrained:
+            self.load_state_dict(model_zoo.load_url('https://github.com/matthias-k/DeepGaze/releases/download/v1.0.0/deepgaze2e.pth'))
 
 
 def import_class(name):

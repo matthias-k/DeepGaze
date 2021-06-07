@@ -1,2 +1,2 @@
-from .deepgaze import DeepGazeII, DeepGazeIII, FeatureExtractor
-from .deepgaze2e import deepgaze2e
+from .deepgaze1 import DeepGazeI
+from .deepgaze2e import DeepGazeIIE
