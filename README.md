@@ -30,7 +30,7 @@ centerbias -= logsumexp(centerbias)
 image_tensor = torch.tensor([image.transpose(2, 0, 1)]).to(DEVICE)
 centerbias_tensor = torch.tensor([centerbias]).to(DEVICE)
 
-log_density_prediction = model(image_tensor, centerbias_tensor))
+log_density_prediction = model(image_tensor, centerbias_tensor)
 ```
 Please note that all DeepGaze models have been trained on the MIT1003 dataset which has a resolution of 35 pixels per degree of visual angle and an image size of mostly 1024 pixel in the longer side. Depending how your images have been presented, you might have to downscale or upscale them before passing them to the DeepGaze models.
 
