@@ -23,7 +23,7 @@ class Normalizer(nn.Module):
 class RGBInceptionV3(nn.Sequential):
     def __init__(self):
         super(RGBInceptionV3, self).__init__()
-        self.resnext = torch.hub.load('pytorch/vision:v0.5.0', 'inception_v3', pretrained=True) 
+        self.resnext = torch.hub.load('pytorch/vision:v0.6.0', 'inception_v3', pretrained=True) 
         self.normalizer = Normalizer()
         super(RGBInceptionV3, self).__init__(self.normalizer, self.resnext)
 
