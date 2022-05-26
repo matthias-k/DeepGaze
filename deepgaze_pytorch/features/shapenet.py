@@ -27,7 +27,7 @@ def load_model(model_name):
         #model = torch.nn.DataParallel(model)  # .cuda()
         # fake DataParallel structrue
         model = torch.nn.Sequential(OrderedDict([('module', model)]))
-        checkpoint = model_zoo.load_url(model_urls[model_name])
+        checkpoint = model_zoo.load_url(model_urls[model_name], map_location=torch.device('cpu'))
     elif "vgg16" in model_name:
         #print("Using the VGG-16 architecture.")
 
@@ -39,7 +39,7 @@ def load_model(model_name):
         model = torchvision.models.vgg16(pretrained=False)
         model.features = torch.nn.DataParallel(model.features)
         model.cuda()
-        checkpoint = torch.load(filepath)
+        checkpoint = torch.load(filepath, map_location=torch.device('cpu'))
 
 
     elif "alexnet" in model_name:
@@ -47,7 +47,7 @@ def load_model(model_name):
         model = torchvision.models.alexnet(pretrained=False)
         model.features = torch.nn.DataParallel(model.features)
         model.cuda()
-        checkpoint = model_zoo.load_url(model_urls[model_name])
+        checkpoint = model_zoo.load_url(model_urls[model_name], map_location=torch.device('cpu'))
     else:
         raise ValueError("unknown model architecture.")
 
@@ -69,7 +69,7 @@ class Normalizer(nn.Module):
 
         return t
 
-      
+
 class RGBShapeNetA(nn.Sequential):
     def __init__(self):
         super(RGBShapeNetA, self).__init__()
@@ -78,7 +78,7 @@ class RGBShapeNetA(nn.Sequential):
         super(RGBShapeNetA, self).__init__(self.normalizer, self.shapenet)
 
 
-        
+
 class RGBShapeNetB(nn.Sequential):
     def __init__(self):
         super(RGBShapeNetB, self).__init__()
@@ -95,4 +95,4 @@ class RGBShapeNetC(nn.Sequential):
         super(RGBShapeNetC, self).__init__(self.normalizer, self.shapenet)
 
 
-  
+

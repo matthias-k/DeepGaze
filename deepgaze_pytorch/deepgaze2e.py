@@ -142,7 +142,7 @@ class DeepGazeIIE(MixtureModel):
         super().__init__(backbone_models)
 
         if pretrained:
-            self.load_state_dict(model_zoo.load_url('https://github.com/matthias-k/DeepGaze/releases/download/v1.0.0/deepgaze2e.pth'))
+            self.load_state_dict(model_zoo.load_url('https://github.com/matthias-k/DeepGaze/releases/download/v1.0.0/deepgaze2e.pth', map_location=torch.device('cpu')))
 
 
 def import_class(name):
