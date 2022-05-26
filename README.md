@@ -5,8 +5,10 @@ This repository contains the pytorch implementations of DeepGaze I, DeepGaze II 
 This is how use the pretained DeepGaze IIE model:
 
 ```python
+import numpy as np
 from scipy.misc import face
 from scipy.ndimage import zoom
+from scipy.special import logsumexp
 import torch
 
 import deepgaze_pytorch
