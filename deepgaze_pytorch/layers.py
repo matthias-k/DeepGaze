@@ -133,23 +133,21 @@ def gaussian_filter_1d(tensor, dim, sigma, truncate=4, kernel_size=None, padding
 
     grid = torch.arange(kernel_size, device=tensor.device) - mean
 
-    # reshape the grid so that it can be used as a kernel for F.conv1d
-    kernel_shape = [1] * len(tensor.shape)
-    kernel_shape[dim] = kernel_size_int
+    kernel_shape = (1, 1, kernel_size)
     grid = grid.view(kernel_shape)
 
     grid = grid.detach()
 
-    padding = [0] * (2 * len(tensor.shape))
-    padding[dim * 2 + 1] = math.ceil((kernel_size_int - 1) / 2)
-    padding[dim * 2] = math.ceil((kernel_size_int - 1) / 2)
-    padding = tuple(reversed(padding))
+    source_shape = tensor.shape
 
-    if padding_mode == 'replicate':
-        # replication padding has some strange constraints...
-        assert len(tensor.shape) - dim <= 2
-        padding = padding[:(len(tensor.shape) - 2) * 2]
+    tensor = torch.movedim(tensor, dim, len(source_shape)-1)
+    dim_last_shape = tensor.shape
+    assert tensor.shape[-1] == source_shape[dim]
 
+    # we need reshape instead of view for batches like B x C x H x W
+    tensor = tensor.reshape(-1, 1, source_shape[dim])
+
+    padding = (math.ceil((kernel_size_int - 1) / 2), math.ceil((kernel_size_int - 1) / 2))
     tensor_ = F.pad(tensor, padding, padding_mode, padding_value)
 
     # create gaussian kernel from grid using current sigma
@@ -157,7 +155,13 @@ def gaussian_filter_1d(tensor, dim, sigma, truncate=4, kernel_size=None, padding
     kernel = kernel / kernel.sum()
 
     # convolve input with gaussian kernel
-    return F.conv1d(tensor_, kernel)
+    tensor_ = F.conv1d(tensor_, kernel)
+    tensor_ = tensor_.view(dim_last_shape)
+    tensor_ = torch.movedim(tensor_, len(source_shape)-1, dim)
+
+    assert tensor_.shape == source_shape
+
+    return tensor_
 
 
 class GaussianFilterNd(nn.Module):
