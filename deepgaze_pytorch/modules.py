@@ -141,9 +141,14 @@ class Finalizer(nn.Module):
 
         downscaled_centerbias = F.interpolate(
             centerbias.view(centerbias.shape[0], 1, centerbias.shape[1], centerbias.shape[2]),
-            scale_factor=1 / self.saliency_map_factor)[:, 0, :, :]
+            scale_factor=1 / self.saliency_map_factor,
+            recompute_scale_factor=False,
+        )[:, 0, :, :]
 
-        out = F.interpolate(readout, size=[downscaled_centerbias.shape[1], downscaled_centerbias.shape[2]])
+        out = F.interpolate(
+            readout,
+            size=[downscaled_centerbias.shape[1], downscaled_centerbias.shape[2]]
+        )
 
         # apply gaussian filter
         out = self.gauss(out)
@@ -185,7 +190,11 @@ class DeepGazeII(torch.nn.Module):
 
     def forward(self, x, centerbias):
         orig_shape = x.shape
-        x = F.interpolate(x, scale_factor=1 / self.downsample)
+        x = F.interpolate(
+            x,
+            scale_factor=1 / self.downsample,
+            recompute_scale_factor=False,
+        )
         x = self.features(x)
 
         readout_shape = [math.ceil(orig_shape[2] / self.downsample / self.readout_factor), math.ceil(orig_shape[3] / self.downsample / self.readout_factor)]
@@ -284,7 +293,11 @@ class DeepGazeIIIMixture(torch.nn.Module):
 
     def forward(self, x, centerbias, x_hist=None, y_hist=None, durations=None):
         orig_shape = x.shape
-        x = F.interpolate(x, scale_factor=1 / self.downsample)
+        x = F.interpolate(
+            x,
+            scale_factor=1 / self.downsample,
+            recompute_scale_factor=False,
+        )
         x = self.features(x)
 
         readout_shape = [math.ceil(orig_shape[2] / self.downsample / self.readout_factor), math.ceil(orig_shape[3] / self.downsample / self.readout_factor)]

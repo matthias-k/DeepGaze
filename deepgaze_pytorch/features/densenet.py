@@ -17,13 +17,13 @@ class Normalizer(nn.Module):
             t[0][i]=(t[0][i]-self.mean[i])/self.std[i]
 
         return t
-    
-    
+
+
 
 class RGBDenseNet201(nn.Sequential):
     def __init__(self):
         super(RGBDenseNet201, self).__init__()
-        self.densenet = torch.hub.load('pytorch/vision:v0.6.0', 'densenet201', pretrained=True) 
+        self.densenet = torch.hub.load('pytorch/vision:v0.6.0', 'densenet201', pretrained=True)
         self.normalizer = Normalizer()
         super(RGBDenseNet201, self).__init__(self.normalizer, self.densenet)
 

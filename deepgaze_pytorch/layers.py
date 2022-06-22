@@ -367,3 +367,61 @@ class MultiHeadSelfAttention(nn.Module):
         outs = [head(tensor) for head in self.heads]
         out = torch.cat(outs, dim=1)
         return out
+
+
+class FlexibleScanpathHistoryEncoding(nn.Module):
+    """
+    a convolutional layer which works for different numbers of previous fixations.
+
+    Nonexistent fixations will deactivate the respective convolutions
+    the bias will be added per fixation (if the given fixation is present)
+    """
+    def __init__(self, in_fixations, channels_per_fixation, out_channels, kernel_size, bias=True,):
+        super().__init__()
+        self.in_fixations = in_fixations
+        self.channels_per_fixation = channels_per_fixation
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.bias = bias
+        self.convolutions = nn.ModuleList([
+            nn.Conv2d(
+                in_channels=self.channels_per_fixation,
+                out_channels=self.out_channels,
+                kernel_size=self.kernel_size,
+                bias=self.bias
+            ) for i in range(in_fixations)
+        ])
+
+    def forward(self, tensor):
+        results = None
+        valid_fixations = ~torch.isnan(
+            tensor[:, :self.in_fixations, 0, 0]
+        )
+        # print("valid fix", valid_fixations)
+
+        for fixation_index in range(self.in_fixations):
+            valid_indices = valid_fixations[:, fixation_index]
+            if not torch.any(valid_indices):
+                continue
+            this_input = tensor[
+                valid_indices,
+                fixation_index::self.in_fixations
+            ]
+            this_result = self.convolutions[fixation_index](
+                this_input
+            )
+            # TODO: This will break if all data points
+            # in the batch don't have a single fixation
+            # but that's not a case I intend to train
+            # anyway.
+            if results is None:
+                b, _, _, _ = tensor.shape
+                _, _, h, w = this_result.shape
+                results = torch.zeros(
+                    (b, self.out_channels, h, w),
+                    dtype=tensor.dtype,
+                    device=tensor.device
+                )
+            results[valid_indices] += this_result
+
+        return results
