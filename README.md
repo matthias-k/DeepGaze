@@ -2,6 +2,8 @@
 
 This repository contains the pytorch implementations of DeepGaze I, DeepGaze II and DeepGaze IIE
 
+## DeepGaze IIE
+
 This is how use the pretained DeepGaze IIE model:
 
 ```python
@@ -35,7 +37,9 @@ centerbias_tensor = torch.tensor([centerbias]).to(DEVICE)
 log_density_prediction = model(image_tensor, centerbias_tensor)
 ```
 
-This is how to use DeepGaze III:
+## DeepGaze III
+
+DeepGaze III is a scanpath model, i.e., the model prediction depends not only on the viewed image, but also on where the observer fixated previously. This is how to use DeepGaze III:
 
 ```python
 import matplotlib.pyplot as plt
