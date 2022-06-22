@@ -1,6 +1,6 @@
 # DeepGaze I, DeepGaze II, DeepGaze IIE and DeepGaze III
 
-This repository contains the pytorch implementations of DeepGaze I, DeepGaze II and DeepGaze IIE
+This repository contains the pytorch implementations of DeepGaze I, DeepGaze II, DeepGaze IIE and DeepGaze III
 
 ## DeepGaze IIE
 
