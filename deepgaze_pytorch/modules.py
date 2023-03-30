@@ -19,7 +19,7 @@ def encode_scanpath_features(x_hist, y_hist, size, device=None, include_x=True, 
 
     xs = torch.arange(width, dtype=torch.float32).to(device)
     ys = torch.arange(height, dtype=torch.float32).to(device)
-    YS, XS = torch.meshgrid(ys, xs)
+    YS, XS = torch.meshgrid(ys, xs, indexing='ij')
 
     XS = torch.repeat_interleave(
         torch.repeat_interleave(
@@ -48,15 +48,6 @@ def encode_scanpath_features(x_hist, y_hist, size, device=None, include_x=True, 
 
     return torch.cat((XS, YS, distances), axis=1)
 
-
-# https://stackoverflow.com/questions/31174295/getattr-and-setattr-on-nested-objects/31174427?noredirect=1#comment86638618_31174427
-def rgetattr(obj, attr, *args):
-    """rgetattr is a drop-in replacements for getattr, which can also handle dotted attr strings. We can use this to get the nested Sequential parts."""
-    def _getattr(obj, attr):
-        return getattr(obj, attr, *args)
-    return functools.reduce(_getattr, [obj] + attr.split('.'))
-
-
 class FeatureExtractor(torch.nn.Module):
     def __init__(self, features, targets):
         super().__init__()
@@ -66,15 +57,18 @@ class FeatureExtractor(torch.nn.Module):
         self.outputs = {}
 
         for target in targets:
-            def hook(module, input, output, target=target):
-                self.outputs[target] = output.clone()
-            rgetattr(self.features, target).register_forward_hook(hook)
+            layer = dict([*self.features.named_modules()])[target]
+            layer.register_forward_hook(self.save_outputs_hook(target))
+
+    def save_outputs_hook(self, layer_id: str):
+        def fn(_, __, output):
+            self.outputs[layer_id] = output.clone()
+        return fn
 
     def forward(self, x):
+
         self.outputs.clear()
-
         self.features(x)
-
         return [self.outputs[target] for target in self.targets]
 
 

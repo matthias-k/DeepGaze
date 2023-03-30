@@ -4,7 +4,7 @@ import io
 from os import path
 
 PACKAGE_NAME = 'deepgaze_pytorch'
-VERSION = '0.1.0'
+VERSION = '0.2.0'
 DESCRIPTION = 'Python pytorch implementation of the different DeepGaze models'
 AUTHOR = 'Matthias Kümmerer'
 EMAIL = 'matthias.kuemmerer@bethgelab.org'
