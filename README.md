@@ -140,12 +140,10 @@ log_density_prediction = model(image_tensor, centerbias_tensor, pixel_per_dva=35
 
 **Important:** DeepGaze MSDB requires knowing the `pixel_per_dva` (pixels per degree of visual angle) of your display setup. This depends on the viewing distance and screen resolution. For example, MIT1003 was collected at 35 pixels per degree.
 
-Please note that all DeepGaze models before DeepGaze MSDB have been trained on the MIT1003 dataset which has a resolution of 35 pixels per degree of visual angle and an image size of mostly 1024 pixel in the longer side. Depending how your images have been presented, you might have to downscale or upscale them before passing them to the DeepGaze models.
-
-
 
 ### Notes about the implementations
 
+* Please note that all DeepGaze models before DeepGaze MSDB have been trained on the MIT1003 dataset which has a resolution of 35 pixels per degree of visual angle and an image size of mostly 1024 pixel in the longer side. Depending how your images have been presented, you might have to downscale or upscale them before passing them to the DeepGaze models.
 * `DeepGaze I`: Please note that the included DeepGaze I model is not exactly the one from the original paper. The original model used caffe for AlexNet and theano for the linear readout
 and was trained using the SFO optimizer. Here, we use the torch implementation of AlexNet (without any adaptations) and the DeepGaze II torch implementation with a simple
 linear readout network. The model has been retrained with Adam, but still on the same dataset (all images of MIT1003 which are of size 1024x768). Also, we don't use the sparsity
