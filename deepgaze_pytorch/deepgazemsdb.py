@@ -396,7 +396,7 @@ class DeepGazeMSDB(nn.Module):
         if pretrained:
             self.load_state_dict(
                 model_zoo.load_url(
-                    'https://github.com/matthias-k/DeepGaze/releases/download/v1.1.0/deepgazemsdb.pth',
+                    'https://github.com/matthias-k/DeepGaze/releases/download/v1.2.0/deepgazemsdb.pth',
                     map_location=torch.device('cpu')
                 )
             )
