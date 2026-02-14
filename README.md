@@ -1,6 +1,6 @@
-# DeepGaze I, DeepGaze II, DeepGaze IIE and DeepGaze III
+# DeepGaze I, DeepGaze II, DeepGaze IIE, DeepGaze III, and DeepGaze MSDB
 
-This repository contains the pytorch implementations of DeepGaze I, DeepGaze II, DeepGaze IIE and DeepGaze III
+This repository contains the pytorch implementations of DeepGaze I, DeepGaze II, DeepGaze IIE, DeepGaze III, and DeepGaze MSDB
 
 ## Examples
 
@@ -97,7 +97,50 @@ The figure shows on the left the viewed image with the previous scanpath fixatio
 
 ![Plot with viewed image and predicted log density](figures/deepgaze3_prediction.png)
 
-Please note that all DeepGaze models have been trained on the MIT1003 dataset which has a resolution of 35 pixels per degree of visual angle and an image size of mostly 1024 pixel in the longer side. Depending how your images have been presented, you might have to downscale or upscale them before passing them to the DeepGaze models.
+### DeepGaze MSDB
+
+DeepGaze MSDB (Multi-Scale Dataset Bias) is a saliency model that combines CLIP and DINOv2 features with learned dataset-specific parameters. It processes images at multiple scales and can either use dataset-specific parameters for known datasets or averaged parameters for generalization to new datasets.
+
+```python
+import numpy as np
+from scipy.misc import face
+from scipy.ndimage import zoom
+from scipy.special import logsumexp
+import torch
+
+import deepgaze_pytorch
+from deepgaze_pytorch import MSDBDataset
+
+DEVICE = 'cuda'
+
+model = deepgaze_pytorch.DeepGazeMSDB(pretrained=True).to(DEVICE)
+
+image = face()
+
+# load precomputed centerbias log density (from MIT1003) over a 1024x1024 image
+# you can download the centerbias from https://github.com/matthias-k/DeepGaze/releases/download/v1.0.0/centerbias_mit1003.npy
+# alternatively, you can use a uniform centerbias via `centerbias_template = np.zeros((1024, 1024))`.
+centerbias_template = np.load('centerbias_mit1003.npy')
+# rescale to match image size
+centerbias = zoom(centerbias_template, (image.shape[0]/centerbias_template.shape[0], image.shape[1]/centerbias_template.shape[1]), order=0, mode='nearest')
+# renormalize log density
+centerbias -= logsumexp(centerbias)
+
+image_tensor = torch.tensor([image.transpose(2, 0, 1)]).to(DEVICE)
+centerbias_tensor = torch.tensor([centerbias]).to(DEVICE)
+
+# For a known dataset (e.g., MIT1003), use dataset-specific parameters:
+log_density_prediction = model(image_tensor, centerbias_tensor, pixel_per_dva=35.0, dataset=MSDBDataset.MIT1003)
+
+# For a new/unknown dataset, use averaged parameters for generalization:
+log_density_prediction = model(image_tensor, centerbias_tensor, pixel_per_dva=35.0, dataset=None)
+```
+
+**Available datasets:** `MSDBDataset.MIT1003`, `MSDBDataset.CAT2000`, `MSDBDataset.COCO_FREEVIEW`, `MSDBDataset.DAEMONS`, `MSDBDataset.FIGRIM`
+
+**Important:** DeepGaze MSDB requires knowing the `pixel_per_dva` (pixels per degree of visual angle) of your display setup. This depends on the viewing distance and screen resolution. For example, MIT1003 was collected at 35 pixels per degree.
+
+Please note that all DeepGaze models before DeepGaze MSDB have been trained on the MIT1003 dataset which has a resolution of 35 pixels per degree of visual angle and an image size of mostly 1024 pixel in the longer side. Depending how your images have been presented, you might have to downscale or upscale them before passing them to the DeepGaze models.
 
 
 
@@ -117,3 +160,4 @@ If you use these models, please cite the according papers:
 * DeepGaze II: [Kümmerer, M., Wallis, T. S. A., Gatys, L. A., & Bethge, M. (2017). Understanding Low- and High-Level Contributions to Fixation Prediction. 4789–4798.](http://openaccess.thecvf.com/content_iccv_2017/html/Kummerer_Understanding_Low-_and_ICCV_2017_paper.html)
 * DeepGaze IIE: [Linardos, A., Kümmerer, M., Press, O., & Bethge, M. (2021). Calibrated prediction in and out-of-domain for state-of-the-art saliency modeling. ArXiv:2105.12441 [Cs]](http://arxiv.org/abs/2105.12441)
 * DeepGaze III: [M. Kümmerer., M. Bethge, & T.S.A. Wallis, (2022). DeepGaze III: Modeling free-viewing human scanpaths with deep learning. Journal of Vision 2022](https://doi.org/10.1167/jov.22.5.7)
+* DeepGaze MSDB: [Kümmerer, M., Khanuja, H., & Bethge, M. (2025). Modeling Saliency Dataset Bias. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)](https://openaccess.thecvf.com/content/ICCV2025/html/Kummerer_Modeling_Saliency_Dataset_Bias_ICCV_2025_paper.html)
