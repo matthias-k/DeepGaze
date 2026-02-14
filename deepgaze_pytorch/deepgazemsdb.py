@@ -392,13 +392,15 @@ class DeepGazeMSDB(nn.Module):
         # Finalizer
         self.finalizer = _DatasetAwareFinalizer(sigma=1.0, n_datasets=_N_DATASETS)
 
-        # Load pretrained weights
+        # Load pretrained weights (strict=False because backbone weights are already
+        # loaded by CLIP/DINOv2, checkpoint only contains head weights)
         if pretrained:
             self.load_state_dict(
                 model_zoo.load_url(
                     'https://github.com/matthias-k/DeepGaze/releases/download/v1.2.0/deepgazemsdb.pth',
                     map_location=torch.device('cpu')
-                )
+                ),
+                strict=False
             )
 
     def forward(self, image: torch.Tensor, centerbias: torch.Tensor,

@@ -6,7 +6,51 @@ This repository contains the pytorch implementations of DeepGaze I, DeepGaze II,
 
 Below you can see some example uses of the models. For more details, check out [Examples.ipynb]
 
-### DeepGaze IIE
+### DeepGaze MSDB (Spatial Saliency Model)
+
+DeepGaze MSDB (Multi-Scale Dataset Bias) is a saliency model that combines CLIP and DINOv2 features with learned dataset-specific parameters. It processes images at multiple scales and can either use dataset-specific parameters for known datasets or averaged parameters for generalization to new datasets.
+
+```python
+import numpy as np
+from scipy.misc import face
+from scipy.ndimage import zoom
+from scipy.special import logsumexp
+import torch
+
+import deepgaze_pytorch
+from deepgaze_pytorch import MSDBDataset
+
+DEVICE = 'cuda'
+
+model = deepgaze_pytorch.DeepGazeMSDB(pretrained=True).to(DEVICE)
+
+image = face()
+
+# load precomputed centerbias log density (from MIT1003) over a 1024x1024 image
+# you can download the centerbias from https://github.com/matthias-k/DeepGaze/releases/download/v1.0.0/centerbias_mit1003.npy
+# alternatively, you can use a uniform centerbias via `centerbias_template = np.zeros((1024, 1024))`.
+centerbias_template = np.load('centerbias_mit1003.npy')
+# rescale to match image size
+centerbias = zoom(centerbias_template, (image.shape[0]/centerbias_template.shape[0], image.shape[1]/centerbias_template.shape[1]), order=0, mode='nearest')
+# renormalize log density
+centerbias -= logsumexp(centerbias)
+
+image_tensor = torch.tensor([image.transpose(2, 0, 1)]).to(DEVICE)
+centerbias_tensor = torch.tensor([centerbias]).to(DEVICE)
+
+# For a known dataset (e.g., MIT1003), use dataset-specific parameters:
+log_density_prediction = model(image_tensor, centerbias_tensor, pixel_per_dva=35.0, dataset=MSDBDataset.MIT1003)
+
+# For a new/unknown dataset, use averaged parameters for generalization:
+log_density_prediction = model(image_tensor, centerbias_tensor, pixel_per_dva=35.0, dataset=None)
+```
+
+**Available datasets:** `MSDBDataset.MIT1003`, `MSDBDataset.CAT2000`, `MSDBDataset.COCO_FREEVIEW`, `MSDBDataset.DAEMONS`, `MSDBDataset.FIGRIM`
+
+**Important:** DeepGaze MSDB requires knowing the `pixel_per_dva` (pixels per degree of visual angle) of your display setup. This depends on the viewing distance and screen resolution. For example, MIT1003 was collected at 35 pixels per degree.
+
+
+### DeepGaze IIE (Spatial Saliency Model)
 
 This is how use the pretained DeepGaze IIE model:
 
@@ -41,7 +85,7 @@ centerbias_tensor = torch.tensor([centerbias]).to(DEVICE)
 log_density_prediction = model(image_tensor, centerbias_tensor)
 ```
 
-### DeepGaze III
+### DeepGaze III (Scanpath Model)
 
 DeepGaze III is a scanpath model, i.e., the model prediction depends not only on the viewed image, but also on where the observer fixated previously. This is how to use DeepGaze III:
 
@@ -97,48 +141,6 @@ The figure shows on the left the viewed image with the previous scanpath fixatio
 
 ![Plot with viewed image and predicted log density](figures/deepgaze3_prediction.png)
 
-### DeepGaze MSDB
-
-DeepGaze MSDB (Multi-Scale Dataset Bias) is a saliency model that combines CLIP and DINOv2 features with learned dataset-specific parameters. It processes images at multiple scales and can either use dataset-specific parameters for known datasets or averaged parameters for generalization to new datasets.
-
-```python
-import numpy as np
-from scipy.misc import face
-from scipy.ndimage import zoom
-from scipy.special import logsumexp
-import torch
-
-import deepgaze_pytorch
-from deepgaze_pytorch import MSDBDataset
-
-DEVICE = 'cuda'
-
-model = deepgaze_pytorch.DeepGazeMSDB(pretrained=True).to(DEVICE)
-
-image = face()
-
-# load precomputed centerbias log density (from MIT1003) over a 1024x1024 image
-# you can download the centerbias from https://github.com/matthias-k/DeepGaze/releases/download/v1.0.0/centerbias_mit1003.npy
-# alternatively, you can use a uniform centerbias via `centerbias_template = np.zeros((1024, 1024))`.
-centerbias_template = np.load('centerbias_mit1003.npy')
-# rescale to match image size
-centerbias = zoom(centerbias_template, (image.shape[0]/centerbias_template.shape[0], image.shape[1]/centerbias_template.shape[1]), order=0, mode='nearest')
-# renormalize log density
-centerbias -= logsumexp(centerbias)
-
-image_tensor = torch.tensor([image.transpose(2, 0, 1)]).to(DEVICE)
-centerbias_tensor = torch.tensor([centerbias]).to(DEVICE)
-
-# For a known dataset (e.g., MIT1003), use dataset-specific parameters:
-log_density_prediction = model(image_tensor, centerbias_tensor, pixel_per_dva=35.0, dataset=MSDBDataset.MIT1003)
-
-# For a new/unknown dataset, use averaged parameters for generalization:
-log_density_prediction = model(image_tensor, centerbias_tensor, pixel_per_dva=35.0, dataset=None)
-```
-
-**Available datasets:** `MSDBDataset.MIT1003`, `MSDBDataset.CAT2000`, `MSDBDataset.COCO_FREEVIEW`, `MSDBDataset.DAEMONS`, `MSDBDataset.FIGRIM`
-
-**Important:** DeepGaze MSDB requires knowing the `pixel_per_dva` (pixels per degree of visual angle) of your display setup. This depends on the viewing distance and screen resolution. For example, MIT1003 was collected at 35 pixels per degree.
 
 
 ### Notes about the implementations
