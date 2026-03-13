@@ -8,7 +8,7 @@ VERSION = '1.2.1'
 DESCRIPTION = 'Python pytorch implementation of the different DeepGaze models'
 AUTHOR = 'Matthias Kümmerer'
 EMAIL = 'matthias.kuemmerer@bethgelab.org'
-URL = "https://github.com/matthiask/deepgaze"
+URL = "https://github.com/matthias-k/deepgaze"
 
 try:
     this_directory = path.abspath(path.dirname(__file__))
