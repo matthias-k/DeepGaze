@@ -87,3 +87,77 @@ def test_multiscale_add_dataset_logsumexp_init_and_old_columns_frozen():
     assert torch.allclose(mod.size_weights.detach()[:, 5], expected_s, atol=1e-6)
     # sanity: the geometric-mean init would differ (guards against the 5.4x DAEMONS trap)
     assert not torch.allclose(expected_w, W0.mean(dim=1), atol=1e-3)
+
+
+@pytest.mark.slow
+def test_model_add_dataset_end_to_end():
+    from deepgaze_pytorch import DeepGazeMSDB, MSDBDataset
+    torch.manual_seed(0)
+    dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = DeepGazeMSDB(pretrained=True).to(dev)
+    model.eval()
+    image = torch.randint(0, 256, (1, 3, 384, 384)).float().to(dev)
+    cb = torch.zeros(1, 384, 384).to(dev)
+    with torch.no_grad():
+        none_pred = model(image, cb, pixel_per_dva=21.75, dataset=None)
+        mit_pred = model(image, cb, pixel_per_dva=21.75, dataset=MSDBDataset.MIT1003)
+
+    idx = model.add_dataset()
+    assert idx == 5
+    # saliency + backbone frozen; per-dataset tensors stay trainable (full width, grad-masked)
+    assert all(not p.requires_grad for p in model.saliency_network.parameters())
+    dp = model.dataset_parameters()
+    assert all(p.requires_grad for p in dp)
+
+    with torch.no_grad():
+        new_pred = model(image, cb, pixel_per_dva=21.75, dataset=idx)
+        mit_after = model(image, cb, pixel_per_dva=21.75, dataset=MSDBDataset.MIT1003)
+    assert torch.allclose(new_pred, none_pred, atol=1e-4)   # init reproduces averaged
+    assert torch.allclose(mit_pred, mit_after, atol=1e-6)   # old dataset frozen
+
+    # gradient masking: an optimizer step moves only the new slot, not the original 5
+    before_old = {id(p): p.detach()[..., :5].clone() for p in dp}
+    before_new = torch.cat([p.detach()[..., 5:6].reshape(-1).clone() for p in dp])
+    opt = torch.optim.Adam(dp, lr=0.1)
+    loss = model(image, cb, pixel_per_dva=21.75, dataset=idx).sum()
+    opt.zero_grad(); loss.backward(); opt.step()
+    for p in dp:
+        assert torch.equal(p.detach()[..., :5], before_old[id(p)])
+    after_new = torch.cat([p.detach()[..., 5:6].reshape(-1) for p in dp])
+    assert not torch.allclose(after_new, before_new)
+
+    # head_state_dict has no backbone and round-trips after a fresh add_dataset
+    sd = model.head_state_dict()
+    assert not any(k.startswith('features.backbone') for k in sd)
+    fresh = DeepGazeMSDB(pretrained=True); fresh.add_dataset()
+    missing, unexpected = fresh.load_state_dict(sd, strict=False)
+    assert not unexpected
+
+
+@pytest.mark.slow
+def test_msdb_train_returns_self():
+    # regression: .train()/.eval() must return self (nn.Module convention) so chaining works
+    from deepgaze_pytorch import DeepGazeMSDB
+    model = DeepGazeMSDB(pretrained=False)
+    assert model.train() is model
+    assert model.eval() is model
+
+
+def test_fixed_geometry_wrapper_absorbs_scanpath_args_and_delegates_state_dict():
+    from deepgaze_pytorch.msdb_finetuning import FixedGeometryMSDB
+
+    class _StubMSDB(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.w = torch.nn.Parameter(torch.zeros(3))
+        def forward(self, image, centerbias, pixel_per_dva, dataset=None):
+            return (float(pixel_per_dva), dataset)
+
+    inner = _StubMSDB()
+    wrapped = FixedGeometryMSDB(inner, pixel_per_dva=21.75, dataset=5)
+    # absorbs the scanpath kwargs the shared training loop passes, forwards fixed geometry
+    out = wrapped(torch.ones(1), torch.zeros(1),
+                  x_hist=torch.tensor([]), y_hist=torch.tensor([]), durations=torch.tensor([]))
+    assert out == (21.75, 5)
+    # state_dict delegates to the inner model (no 'model.' prefix), so checkpoints stay compatible
+    assert set(wrapped.state_dict().keys()) == {'w'}
