@@ -130,6 +130,21 @@ class _DatasetAwareFinalizer(nn.Module):
         self.dataset_center_bias_weights = nn.Parameter(torch.ones(n_datasets), requires_grad=True)
         self.dataset_priority_scalings = nn.Parameter(torch.zeros(n_datasets), requires_grad=True)
 
+    def set_priority_reference(self, value):
+        """Freeze the reference used to mean-center the priority scalings.
+
+        The priority scaling of a dataset is applied as ``exp(p_d - reference)``. Normally
+        ``reference`` is the live ``mean(p)``, which couples all datasets. Freezing it to a
+        fixed value (the original-datasets mean, set by ``add_dataset``) decouples the slots so
+        that training a newly added dataset leaves the pretrained datasets' predictions
+        unchanged.
+        """
+        value = torch.as_tensor(value, dtype=self.dataset_priority_scalings.dtype)
+        if 'priority_scaling_reference' in self._buffers:
+            self.priority_scaling_reference = value
+        else:
+            self.register_buffer('priority_scaling_reference', value)
+
     def forward(self, readout: torch.Tensor, centerbias: torch.Tensor,
                 scaling_factors: List[float], dataset_indices: Optional[torch.Tensor]) -> torch.Tensor:
         # Downscale centerbias to match readout
@@ -144,8 +159,14 @@ class _DatasetAwareFinalizer(nn.Module):
 
         # Apply priority scaling
         if dataset_indices is not None:
-            # Normalize w.r.t geometric mean to make numbers comparable
-            dataset_priority_scalings_mean_log = torch.mean(self.dataset_priority_scalings)
+            # Normalize w.r.t geometric mean to make numbers comparable. When a fixed reference
+            # has been set (after add_dataset), use it instead of the live mean so that adding
+            # and training new dataset slots does not shift the pretrained datasets.
+            reference = getattr(self, 'priority_scaling_reference', None)
+            if reference is not None:
+                dataset_priority_scalings_mean_log = reference
+            else:
+                dataset_priority_scalings_mean_log = torch.mean(self.dataset_priority_scalings)
             dataset_priority_scalings = torch.exp(self.dataset_priority_scalings - dataset_priority_scalings_mean_log)
             priority_scalings = dataset_priority_scalings[dataset_indices].view(-1, 1, 1)
         else:
