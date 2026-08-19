@@ -169,7 +169,10 @@ def train_epoch(model, dataset, optimizer, device):
 
 def restore_from_checkpoint(model, optimizer, scheduler, path):
     print("Restoring from", path)
-    data = torch.load(path)
+    # weights_only=False: training-state checkpoints contain optimizer state, the RNG state and a
+    # numpy loss scalar, which torch>=2.6's default weights_only=True cannot unpickle. These files
+    # are produced by this training loop itself, so loading them fully is safe.
+    data = torch.load(path, weights_only=False)
     if 'optimizer' in data:
         # checkpoint contains training progress
         model.load_state_dict(data['model'])
