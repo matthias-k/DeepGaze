@@ -30,6 +30,46 @@ from .metrics import log_likelihood, nss, auc
 from .modules import DeepGazeII
 
 
+import inspect as _inspect
+
+# scanpath-only kwargs that spatial models (DeepGazeII, DeepGaze MSDB) do not accept
+_SCANPATH_KWARGS = ('x_hist', 'y_hist', 'durations')
+
+
+def _forward_with_supported_kwargs(model, image, centerbias, available):
+    """Call ``model(image, centerbias, ...)`` passing only the kwargs its forward supports.
+
+    Replaces the old ``isinstance(model, DeepGazeII)`` branch. A model whose forward declares
+    explicit parameters (e.g. DeepGaze MSDB: ``pixel_per_dva``, ``dataset``) receives exactly
+    those; a model with ``**kwargs`` (DeepGazeIII / DatasetAwareDeepGaze) receives everything
+    except the synthesized scanpath kwargs it doesn't want. This also fixes DeepGazeIIE, which
+    is a MixtureModel (not a DeepGazeII) and previously hit the scanpath branch by mistake.
+    """
+    params = _inspect.signature(model.forward).parameters
+    has_varkw = any(p.kind is p.VAR_KEYWORD for p in params.values())
+    kwargs = {}
+    for key, value in available.items():
+        if key in params:
+            kwargs[key] = value
+        elif has_varkw and key not in _SCANPATH_KWARGS:
+            kwargs[key] = value
+    return model(image, centerbias, **kwargs)
+
+
+def _finalizer_scalar_for_logging(obj, attr):
+    """Return a nested attribute (e.g. ``gauss.sigma``) for tensorboard logging, or None.
+
+    DeepGaze III's finalizer exposes ``gauss.sigma`` / ``center_bias_weight``; MSDB's does
+    not, so logging must be best-effort rather than crash the training loop.
+    """
+    try:
+        for part in attr.split('.'):
+            obj = getattr(obj, part)
+        return obj
+    except AttributeError:
+        return None
+
+
 
 baseline_performance = cached(LRU(max_size=3))(lambda model, *args, **kwargs: model.information_gain(*args, **kwargs))
 
@@ -63,10 +103,11 @@ def eval_epoch(model, dataset, baseline_information_gain, device, metrics=None):
             for key, value in dict(batch).items():
                 kwargs[key] = value.to(device)
 
-            if isinstance(model, DeepGazeII):
-                log_density = model(image, centerbias, **kwargs)
-            else:
-                log_density = model(image, centerbias, x_hist=x_hist, y_hist=y_hist, durations=durations, **kwargs)
+            available = dict(kwargs)
+            available.setdefault('x_hist', x_hist)
+            available.setdefault('y_hist', y_hist)
+            available.setdefault('durations', durations)
+            log_density = _forward_with_supported_kwargs(model, image, centerbias, available)
 
             for metric_name, metric_fn in metric_functions.items():
                 if metric_name not in metrics:
@@ -106,10 +147,11 @@ def train_epoch(model, dataset, optimizer, device):
         for key, value in dict(batch).items():
             kwargs[key] = value.to(device)
 
-        if isinstance(model, DeepGazeII):
-            log_density = model(image, centerbias, **kwargs)
-        else:
-            log_density = model(image, centerbias, x_hist=x_hist, y_hist=y_hist, durations=durations, **kwargs)
+        available = dict(kwargs)
+        available.setdefault('x_hist', x_hist)
+        available.setdefault('y_hist', y_hist)
+        available.setdefault('durations', durations)
+        log_density = _forward_with_supported_kwargs(model, image, centerbias, available)
 
         loss = -log_likelihood(log_density, fixation_mask, weights=weights)
         losses.append(loss.detach().cpu().numpy())
@@ -172,6 +214,7 @@ def _train(this_directory,
           validation_metrics=['IG', 'LL', 'AUC', 'NSS'],
           validation_epochs=1,
           startwith=None,
+          state_dict_fn=None,
           device=None):
     mkdir_p(this_directory)
 
@@ -217,8 +260,14 @@ def _train(this_directory,
         #writer.add_figure('prediction', f, step)
         writer.add_scalar('training/loss', last_loss, step)
         writer.add_scalar('training/learning_rate', optimizer.state_dict()['param_groups'][0]['lr'], step)
-        writer.add_scalar('parameters/sigma', model.finalizer.gauss.sigma.detach().cpu().numpy(), step)
-        writer.add_scalar('parameters/center_bias_weight', model.finalizer.center_bias_weight.detach().cpu().numpy()[0], step)
+        _sigma = _finalizer_scalar_for_logging(model, 'finalizer.gauss.sigma')
+        if _sigma is not None:
+            writer.add_scalar('parameters/sigma', _sigma.detach().cpu().numpy(), step)
+        _cbw = _finalizer_scalar_for_logging(model, 'finalizer.center_bias_weight')
+        if _cbw is not None:
+            writer.add_scalar('parameters/center_bias_weight', _cbw.detach().cpu().numpy()[0], step)
+        if hasattr(model, 'write_to_tensorboard'):
+            model.write_to_tensorboard(writer, step)
 
         if step % validation_epochs == 0:
             _val_metrics = eval_epoch(model, val_loader, val_baseline_log_likelihood, device, metrics=validation_metrics)
@@ -302,7 +351,7 @@ def _train(this_directory,
     #else:
     #    print("Not resetting to best validation epoch")
 
-    torch.save(model.state_dict(), '{}/final.pth'.format(this_directory))
+    torch.save(state_dict_fn() if state_dict_fn is not None else model.state_dict(), '{}/final.pth'.format(this_directory))
 
     for filename in glob.glob(os.path.join(this_directory, 'step-*')):
         print("removing", filename)
