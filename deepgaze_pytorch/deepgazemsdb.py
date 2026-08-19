@@ -535,8 +535,71 @@ class DeepGazeMSDB(nn.Module):
 
         return x
 
+    def add_dataset(self, n_generalization_datasets: Optional[int] = None) -> int:
+        """Add a new dataset slot for adapting the model to a new dataset.
+
+        Appends one per-dataset parameter slot (13 scalars total: 5 pixel-per-dva scale
+        weights, 5 size scale weights, 1 gaussian sigma, 1 center-bias weight, 1 priority
+        scaling), initialised from the mean of the original ``n_generalization_datasets``
+        datasets so that ``model(image, centerbias, pixel_per_dva, dataset=new_index)``
+        reproduces the averaged ``dataset=None`` prediction at initialisation. The saliency
+        network and backbone are frozen, and gradient masking is installed so that only the
+        new slot trains -- the original datasets' predictions stay unchanged. The new slot
+        index is returned; use it for training and evaluation.
+
+        Note: an adapted checkpoint's per-dataset tensors are one column wider than the
+        released model's, so reloading one requires calling ``add_dataset`` before
+        ``load_state_dict``.
+        """
+        if n_generalization_datasets is None:
+            n_generalization_datasets = _N_DATASETS
+        n = int(n_generalization_datasets)
+
+        idx_a = self.features.add_dataset(n)
+        idx_b = self.finalizer.add_dataset(n)
+        assert idx_a == idx_b, (idx_a, idx_b)
+
+        # Freeze everything except the per-dataset parameters
+        for param in self.saliency_network.parameters():
+            param.requires_grad = False
+        for param in self.features.backbone.parameters():
+            param.requires_grad = False
+
+        # Mask gradients so only the new slot trains (original columns/entries stay frozen)
+        def _make_mask(n):
+            def _mask(grad):
+                grad = grad.clone()
+                grad[..., :n] = 0
+                return grad
+            return _mask
+        for param in self.dataset_parameters():
+            param.register_hook(_make_mask(n))
+
+        return idx_a
+
+    def dataset_parameters(self):
+        """The five per-dataset parameter tensors (the only ones trained during adaptation)."""
+        return [
+            self.features.pixel_per_dva_weights,
+            self.features.size_weights,
+            self.finalizer.gauss.dataset_sigmas,
+            self.finalizer.dataset_center_bias_weights,
+            self.finalizer.dataset_priority_scalings,
+        ]
+
+    def head_state_dict(self):
+        """State dict without the frozen CLIP/DINOv2 backbone.
+
+        Matches the released ``deepgazemsdb.pth`` format (head only). Load into a
+        ``DeepGazeMSDB`` with ``strict=False``; for an adapted model call ``add_dataset``
+        first so the per-dataset tensor shapes match.
+        """
+        return {k: v for k, v in self.state_dict().items()
+                if not k.startswith('features.backbone')}
+
     def train(self, mode: bool = True):
         """Set training mode, keeping backbone frozen."""
         self.features.train(mode=mode)
         self.saliency_network.train(mode=mode)
         self.finalizer.train(mode=mode)
+        return self
