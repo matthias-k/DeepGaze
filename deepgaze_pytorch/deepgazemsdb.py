@@ -96,12 +96,25 @@ class _DatasetAwareGaussianFilter(nn.Module):
             torch.ones(n_datasets, dtype=torch.float32) * sigma,
             requires_grad=True
         )
+        # number of original (generalization) datasets to average over when dataset=None;
+        # None means "all", preserving the pretrained behaviour. Set by add_dataset.
+        self.n_generalization_datasets = None
+
+    def add_dataset(self, n_generalization_datasets):
+        """Append a sigma slot initialised to the mean of the original datasets' sigmas."""
+        with torch.no_grad():
+            new_sigma = self.dataset_sigmas.data[:n_generalization_datasets].mean().reshape(1)
+        self.dataset_sigmas = nn.Parameter(torch.cat([self.dataset_sigmas.data, new_sigma]))
+        self.n_generalization_datasets = n_generalization_datasets
+        return self.dataset_sigmas.shape[0] - 1
 
     def forward(self, tensor: torch.Tensor, scaling_factors: List[float],
                 dataset_indices: Optional[torch.Tensor]) -> torch.Tensor:
         if dataset_indices is None:
-            # Average over all datasets
-            sigma = self.dataset_sigmas.mean()
+            # Average over the original (generalization) datasets only
+            n = self.n_generalization_datasets
+            source = self.dataset_sigmas if n is None else self.dataset_sigmas[:n]
+            sigma = source.mean()
             sigmas = [sigma for _ in range(tensor.shape[0])]
         else:
             sigmas = self.dataset_sigmas[dataset_indices]
@@ -129,6 +142,28 @@ class _DatasetAwareFinalizer(nn.Module):
         self.gauss = _DatasetAwareGaussianFilter([2, 3], sigma, n_datasets=n_datasets, truncate=3)
         self.dataset_center_bias_weights = nn.Parameter(torch.ones(n_datasets), requires_grad=True)
         self.dataset_priority_scalings = nn.Parameter(torch.zeros(n_datasets), requires_grad=True)
+        # number of original (generalization) datasets to average over when dataset=None;
+        # None means "all", preserving the pretrained behaviour. Set by add_dataset.
+        self.n_generalization_datasets = None
+
+    def add_dataset(self, n_generalization_datasets):
+        """Append a per-dataset slot initialised from the original datasets so that
+        ``forward(..., dataset_indices=[new])`` reproduces the ``dataset_indices=None``
+        (averaged) prediction, while leaving the original datasets' predictions unchanged.
+        """
+        g = slice(0, n_generalization_datasets)
+        with torch.no_grad():
+            new_cbw = self.dataset_center_bias_weights.data[g].mean().reshape(1)
+            new_pri = self.dataset_priority_scalings.data[g].mean().reshape(1)
+        self.dataset_center_bias_weights = nn.Parameter(
+            torch.cat([self.dataset_center_bias_weights.data, new_cbw]))
+        self.dataset_priority_scalings = nn.Parameter(
+            torch.cat([self.dataset_priority_scalings.data, new_pri]))
+        # freeze the priority reference at the original-datasets mean so old slots stay fixed
+        self.set_priority_reference(self.dataset_priority_scalings.data[g].mean())
+        self.gauss.add_dataset(n_generalization_datasets)
+        self.n_generalization_datasets = n_generalization_datasets
+        return self.dataset_priority_scalings.shape[0] - 1
 
     def set_priority_reference(self, value):
         """Freeze the reference used to mean-center the priority scalings.
@@ -178,7 +213,9 @@ class _DatasetAwareFinalizer(nn.Module):
         if dataset_indices is not None:
             centerbias_weights = self.dataset_center_bias_weights[dataset_indices].view(-1, 1, 1)
         else:
-            centerbias_weight = self.dataset_center_bias_weights.mean()
+            n = self.n_generalization_datasets
+            source = self.dataset_center_bias_weights if n is None else self.dataset_center_bias_weights[:n]
+            centerbias_weight = source.mean()
             centerbias_weights = centerbias_weight.view(1, 1, 1)
 
         out = out + centerbias_weights * downscaled_centerbias
