@@ -72,14 +72,13 @@ centerbias = fit_centerbias(stimuli, fixations)
 
 # 3. adapt: adds a new dataset slot and trains its 13 parameters
 model = DeepGazeMSDB(pretrained=True)
-model = finetune_new_dataset(
+model, new_dataset_index = finetune_new_dataset(
     model, stimuli, fixations, centerbias,
     pixel_per_dva=21.75,               # pixels per degree of your presentation
     train_directory='adaptation_run',  # head-only weights land in adaptation_run/final.pth
 )
 
-# 4. use the adapted model on your dataset (the new slot is the last index)
-new_dataset_index = model.features.pixel_per_dva_weights.shape[1] - 1
+# 4. use the adapted model on your dataset
 log_density = model(image_tensor, centerbias_tensor, pixel_per_dva=21.75, dataset=new_dataset_index)
 ```
 

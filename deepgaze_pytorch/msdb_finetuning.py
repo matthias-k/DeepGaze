@@ -78,7 +78,8 @@ def finetune_new_dataset(model, stimuli, fixations, centerbias, pixel_per_dva,
         device: torch device (defaults to cuda if available).
 
     Returns:
-        The adapted ``DeepGazeMSDB`` (same object as ``model``).
+        ``(model, dataset_index)`` -- the adapted ``DeepGazeMSDB`` (same object as ``model``) and
+        the index of the new dataset slot, to pass as ``dataset=`` when using the adapted model.
     """
     from deepgaze_pytorch.data import ImageDataset, ImageDatasetSampler, FixationMaskTransform
     from deepgaze_pytorch.training import _train
@@ -117,4 +118,4 @@ def finetune_new_dataset(model, stimuli, fixations, centerbias, pixel_per_dva,
            state_dict_fn=model.head_state_dict,
            device=device)
 
-    return model
+    return model, dataset_index
