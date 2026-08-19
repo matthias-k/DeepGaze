@@ -52,7 +52,7 @@ class FixedGeometryMSDB(nn.Module):
 
 def finetune_new_dataset(model, stimuli, fixations, centerbias, pixel_per_dva,
                          train_directory, train_stimuli=None, train_fixations=None,
-                         val_stimuli=None, val_fixations=None,
+                         val_stimuli=None, val_fixations=None, dataset_index=None,
                          lr=0.01, milestones=(6, 20, 24, 25, 27), minimum_learning_rate=5e-5,
                          batch_size=4, validation_epochs=1, device=None):
     """Adapt a pretrained ``DeepGazeMSDB`` to a new dataset and return the adapted model.
@@ -71,6 +71,9 @@ def finetune_new_dataset(model, stimuli, fixations, centerbias, pixel_per_dva,
             ``<train_directory>/final.pth``).
         train_stimuli/train_fixations/val_stimuli/val_fixations: explicit splits; if omitted, the
             same ``stimuli, fixations`` are used for training and validation.
+        dataset_index: if you already called ``model.add_dataset()`` (e.g. to verify the
+            initialisation before training), pass the returned index here so a second slot is not
+            added; otherwise a new slot is created automatically.
         lr, milestones, minimum_learning_rate, batch_size, validation_epochs: training schedule.
         device: torch device (defaults to cuda if available).
 
@@ -85,7 +88,10 @@ def finetune_new_dataset(model, stimuli, fixations, centerbias, pixel_per_dva,
         train_stimuli, train_fixations = stimuli, fixations
         val_stimuli, val_fixations = stimuli, fixations
 
-    dataset_index = model.add_dataset()
+    # add a new dataset slot, unless the caller already added one (e.g. to check the
+    # initialisation before training) and passes its index in.
+    if dataset_index is None:
+        dataset_index = model.add_dataset()
     wrapped = FixedGeometryMSDB(model, pixel_per_dva=pixel_per_dva, dataset=dataset_index).to(device)
 
     def _loader(st, fx):
