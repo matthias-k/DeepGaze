@@ -61,3 +61,29 @@ def test_finalizer_none_unchanged_after_add_dataset():
     fin.add_dataset(n_generalization_datasets=5)
     after = fin(readout, cb, sc, None)
     assert torch.allclose(before, after, atol=1e-6)
+
+
+def test_multiscale_add_dataset_logsumexp_init_and_old_columns_frozen():
+    # build only the weight-carrying module; the backbone is unused for this test
+    mod = _MultiScaleBackbone.__new__(_MultiScaleBackbone)
+    torch.nn.Module.__init__(mod)
+    torch.manual_seed(0)
+    mod.pixel_per_dva_weights = torch.nn.Parameter(torch.randn(5, 5))
+    mod.size_weights = torch.nn.Parameter(torch.randn(5, 5))
+    W0 = mod.pixel_per_dva_weights.detach().clone()
+    S0 = mod.size_weights.detach().clone()
+
+    new_idx = mod.add_dataset(n_generalization_datasets=5)
+    assert new_idx == 5
+    assert mod.pixel_per_dva_weights.shape == (5, 6)
+    assert mod.size_weights.shape == (5, 6)
+    # existing columns byte-identical
+    assert torch.equal(mod.pixel_per_dva_weights.detach()[:, :5], W0)
+    assert torch.equal(mod.size_weights.detach()[:, :5], S0)
+    # new column = log of the arithmetic mean of exp(orig)  (NOT the geometric mean W.mean)
+    expected_w = torch.logsumexp(W0, dim=1) - math.log(5)
+    expected_s = torch.logsumexp(S0, dim=1) - math.log(5)
+    assert torch.allclose(mod.pixel_per_dva_weights.detach()[:, 5], expected_w, atol=1e-6)
+    assert torch.allclose(mod.size_weights.detach()[:, 5], expected_s, atol=1e-6)
+    # sanity: the geometric-mean init would differ (guards against the 5.4x DAEMONS trap)
+    assert not torch.allclose(expected_w, W0.mean(dim=1), atol=1e-3)

@@ -262,6 +262,27 @@ class _MultiScaleBackbone(nn.Module):
             torch.zeros((len(resolutions_size), n_datasets)),
             requires_grad=True
         )
+        # number of original (generalization) datasets to average over when dataset_index=None;
+        # None means "all", preserving the pretrained behaviour. Set by add_dataset.
+        self.n_generalization_datasets = None
+
+    def add_dataset(self, n_generalization_datasets):
+        """Append a per-dataset weight column to both scale-weight tensors, initialised so the
+        normalised scale weights of the new column equal the ``dataset_index=None`` average of
+        the original datasets. The weights live in log space and are averaged as
+        ``exp(w).mean(dim=1)`` in the None branch, so the correct log-space init of the new
+        column is ``logsumexp(w[:, :n], dim=1) - log(n)`` (the log of the arithmetic mean of
+        ``exp(w)``), NOT ``w.mean(dim=1)`` (which would be the geometric mean).
+        """
+        def _widen(param):
+            with torch.no_grad():
+                new_col = (torch.logsumexp(param.data[:, :n_generalization_datasets], dim=1)
+                           - math.log(n_generalization_datasets)).unsqueeze(1)
+            return nn.Parameter(torch.cat([param.data, new_col], dim=1))
+        self.pixel_per_dva_weights = _widen(self.pixel_per_dva_weights)
+        self.size_weights = _widen(self.size_weights)
+        self.n_generalization_datasets = n_generalization_datasets
+        return self.pixel_per_dva_weights.shape[1] - 1
 
     def _process_pixel_per_dva(self, x: torch.Tensor, image_pixel_per_dvas: List[float],
                                 target_pixel_per_dva: float, readout_shape: List[int]) -> torch.Tensor:
@@ -315,10 +336,13 @@ class _MultiScaleBackbone(nn.Module):
         size_weights = torch.exp(self.size_weights)
 
         if dataset_index is None:
-            # Average weights across all datasets
+            # Average weights across the original (generalization) datasets only
             dataset_index = torch.zeros(orig_shape[0], dtype=torch.long, device=x.device)
-            pixel_per_dva_weights = pixel_per_dva_weights.mean(dim=1, keepdim=True)
-            size_weights = size_weights.mean(dim=1, keepdim=True)
+            n = self.n_generalization_datasets
+            ppd_source = pixel_per_dva_weights if n is None else pixel_per_dva_weights[:, :n]
+            size_source = size_weights if n is None else size_weights[:, :n]
+            pixel_per_dva_weights = ppd_source.mean(dim=1, keepdim=True)
+            size_weights = size_source.mean(dim=1, keepdim=True)
 
         # Normalize weights to sum to 1
         weight_sum = pixel_per_dva_weights.sum(dim=0, keepdim=True) + size_weights.sum(dim=0, keepdim=True)
