@@ -16,11 +16,9 @@ Typical use::
     centerbias = fit_centerbias(stimuli, fixations)
     model = DeepGazeMSDB(pretrained=True)
     model, dataset_index = finetune_new_dataset(model, stimuli, fixations, centerbias,
-                                                pixel_per_dva=21.75)
+                                                pixel_per_dva=21.75, train_directory='adaptation_run')
     log_density = model(image, centerbias_map, pixel_per_dva=21.75, dataset=dataset_index)
 """
-import tempfile
-
 import torch
 import torch.nn as nn
 
@@ -54,7 +52,7 @@ class FixedGeometryMSDB(nn.Module):
 
 
 def finetune_new_dataset(model, train_stimuli, train_fixations, centerbias, pixel_per_dva,
-                         val_stimuli=None, val_fixations=None, train_directory=None,
+                         train_directory, val_stimuli=None, val_fixations=None,
                          dataset_index=None, lr=0.01, milestones=(6, 20, 24, 25, 27),
                          minimum_learning_rate=5e-5, batch_size=4, validation_epochs=1, device=None):
     """Adapt a pretrained ``DeepGazeMSDB`` to a new dataset and return the adapted model.
@@ -64,22 +62,24 @@ def finetune_new_dataset(model, train_stimuli, train_fixations, centerbias, pixe
     with the new slot's index. After this call the new dataset is the last slot and ``dataset=None``
     still yields the original generalization average.
 
+    ``train_directory`` is required and persists the run: the final head-only weights land in
+    ``<train_directory>/final.pth`` and per-epoch checkpoints allow resuming. Re-running with the
+    same directory resumes an interrupted run, or returns immediately with the finished weights if
+    it already completed -- so a crash never costs the (potentially hours-long) training.
+
     **Reloading a saved adapted model:** the adapted per-dataset tensors are one column wider than
-    the released model's, so a checkpoint saved from an adapted model (e.g.
-    ``<train_directory>/final.pth``, or ``model.head_state_dict()``) can only be loaded into a fresh
-    model that has already had the slot added -- call ``model.add_dataset()`` *before*
-    ``load_state_dict(..., strict=False)``.
+    the released model's, so a checkpoint saved from an adapted model (``<train_directory>/final.pth``
+    or ``model.head_state_dict()``) can only be loaded into a fresh model that has already had the
+    slot added -- call ``model.add_dataset()`` *before* ``load_state_dict(..., strict=False)``.
 
     Args:
         model: a ``DeepGazeMSDB`` (typically ``pretrained=True``).
         train_stimuli, train_fixations: the new dataset to adapt to.
         centerbias: a center-bias model, e.g. from ``fit_centerbias`` (or your own).
         pixel_per_dva: pixels per degree of visual angle for the dataset's presentation.
+        train_directory: directory for checkpoints / logs (persists the run; enables resume).
         val_stimuli, val_fixations: optional held-out data for the validation metric; if omitted,
             the training data is used (fine for this small 13-parameter fit).
-        train_directory: where checkpoints / logs are written (the final head-only weights land in
-            ``<train_directory>/final.pth``). If ``None``, a temporary directory is used and removed
-            afterwards -- the adapted weights are still available in the returned model.
         dataset_index: if you already called ``model.add_dataset()`` (e.g. to verify the
             initialisation before training), pass the returned index here so a second slot is not
             added; otherwise a new slot is created automatically.
@@ -90,6 +90,8 @@ def finetune_new_dataset(model, train_stimuli, train_fixations, centerbias, pixe
         ``(model, dataset_index)`` -- the adapted ``DeepGazeMSDB`` (same object as ``model``) and
         the index of the new dataset slot, to pass as ``dataset=`` when using the adapted model.
     """
+    import os
+
     from deepgaze_pytorch.data import ImageDataset, ImageDatasetSampler, FixationMaskTransform
     from deepgaze_pytorch.training import _train
 
@@ -118,17 +120,19 @@ def finetune_new_dataset(model, train_stimuli, train_fixations, centerbias, pixe
     optimizer = torch.optim.Adam(model.dataset_parameters(), lr=lr)
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=list(milestones))
 
-    temporary_directory = tempfile.TemporaryDirectory() if train_directory is None else None
-    try:
-        _train(train_directory or temporary_directory.name, wrapped,
-               train_loader, train_baseline, val_loader, val_baseline,
-               optimizer, lr_scheduler,
-               minimum_learning_rate=minimum_learning_rate,
-               validation_epochs=validation_epochs,
-               state_dict_fn=model.head_state_dict,
-               device=device)
-    finally:
-        if temporary_directory is not None:
-            temporary_directory.cleanup()
+    _train(train_directory, wrapped,
+           train_loader, train_baseline, val_loader, val_baseline,
+           optimizer, lr_scheduler,
+           minimum_learning_rate=minimum_learning_rate,
+           validation_epochs=validation_epochs,
+           state_dict_fn=model.head_state_dict,
+           device=device)
+
+    # _train writes final.pth at the end but does not load it back into the model, and it returns
+    # early (without training) when final.pth already exists. Load it so the returned model always
+    # carries the adapted weights, including on a re-run that skipped a completed training.
+    final_path = os.path.join(train_directory, 'final.pth')
+    if os.path.exists(final_path):
+        model.load_state_dict(torch.load(final_path, weights_only=True), strict=False)
 
     return model, dataset_index

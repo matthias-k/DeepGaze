@@ -71,10 +71,12 @@ stimuli, fixations = load_fixations_csv('images/', 'fixations.csv')
 centerbias = fit_centerbias(stimuli, fixations)
 
 # 3. adapt: adds a new dataset slot and trains its 13 parameters
+#    (train_directory persists checkpoints so an interrupted run can be resumed)
 model = DeepGazeMSDB(pretrained=True)
 model, new_dataset_index = finetune_new_dataset(
     model, stimuli, fixations, centerbias,
-    pixel_per_dva=21.75,   # pixels per degree of your presentation
+    pixel_per_dva=21.75,               # pixels per degree of your presentation
+    train_directory='adaptation_run',
 )
 
 # 4. use the adapted model on your dataset
