@@ -74,15 +74,18 @@ centerbias = fit_centerbias(stimuli, fixations)
 model = DeepGazeMSDB(pretrained=True)
 model, new_dataset_index = finetune_new_dataset(
     model, stimuli, fixations, centerbias,
-    pixel_per_dva=21.75,               # pixels per degree of your presentation
-    train_directory='adaptation_run',  # head-only weights land in adaptation_run/final.pth
+    pixel_per_dva=21.75,   # pixels per degree of your presentation
 )
 
 # 4. use the adapted model on your dataset
 log_density = model(image_tensor, centerbias_tensor, pixel_per_dva=21.75, dataset=new_dataset_index)
+
+# optionally save the adapted (head-only) weights
+import torch
+torch.save(model.head_state_dict(), 'deepgazemsdb_mydataset.pth')
 ```
 
-`load_fixations_csv` and `fit_centerbias` are convenience helpers — if you already have pysaliency `stimuli, fixations`, or your own center-bias model, pass them straight in. The saved `adaptation_run/final.pth` is a head-only checkpoint in the same format as the released weights; to reload it, build a `DeepGazeMSDB`, call `model.add_dataset()`, then `model.load_state_dict(torch.load(...), strict=False)`.
+`load_fixations_csv` and `fit_centerbias` are convenience helpers — if you already have pysaliency `stimuli, fixations`, or your own center-bias model, pass them straight in. `model.head_state_dict()` is a head-only checkpoint in the same format as the released weights; to reload it, build a `DeepGazeMSDB`, call `model.add_dataset()` (so the parameter shapes match), then `model.load_state_dict(torch.load('deepgazemsdb_mydataset.pth'), strict=False)`.
 
 See [finetune_deepgazemsdb.ipynb](finetune_deepgazemsdb.ipynb) for a full worked example on a public dataset.
 

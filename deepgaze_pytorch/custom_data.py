@@ -6,7 +6,6 @@ fit a center-bias (baseline) log-density over the fixations. They are useful for
 model (II / IIE / III / MSDB), not just MSDB adaptation. If you already have pysaliency
 objects, or your own center-bias, skip these and pass your objects directly.
 """
-import csv as _csv
 import os
 from collections import OrderedDict
 
@@ -36,27 +35,24 @@ def load_fixations_csv(image_dir, csv_path, image_column='image', x_column='x', 
         ``(stimuli, fixations)`` ready for ``fit_centerbias`` / ``finetune_new_dataset`` or any
         DeepGaze model.
     """
-    filenames = []
-    index_of = {}
-    xs, ys, ns = [], [], []
-    with open(csv_path, newline='') as f:
-        for row in _csv.DictReader(f):
-            name = row[image_column]
-            if name not in index_of:
-                index_of[name] = len(filenames)
-                filenames.append(os.path.join(image_dir, name))
-            ns.append(index_of[name])
-            xs.append(float(row[x_column]))
-            ys.append(float(row[y_column]))
+    import pandas as pd
+
+    data = pd.read_csv(csv_path)
+    image_names = list(dict.fromkeys(data[image_column]))  # unique, in first-seen order
+    index_of = {name: i for i, name in enumerate(image_names)}
+    filenames = [os.path.join(image_dir, name) for name in image_names]
 
     stimuli = pysaliency.FileStimuli(filenames)
     fixations = pysaliency.Fixations.create_without_history(
-        x=np.array(xs), y=np.array(ys), n=np.array(ns, dtype=int))
+        x=data[x_column].to_numpy(dtype=float),
+        y=data[y_column].to_numpy(dtype=float),
+        n=data[image_column].map(index_of).to_numpy(dtype=int),
+    )
     return stimuli, fixations
 
 
-def fit_centerbias(stimuli, fixations, bandwidth=None, crossvalidated=True, eps=1e-13,
-                   log_bandwidth_bounds=(-2.5, -0.5), fit_uniform_log_weight=-4.0, verbose=False):
+def fit_centerbias(stimuli, fixations, bandwidth=None, crossvalidated=True, eps=1e-3,
+                   bandwidth_bounds=(0.005, 0.3), verbose=False):
     """Fit a Gaussian-KDE center-bias (baseline log-density) over the fixations.
 
     The center-bias captures where fixations land on average, independent of the image; DeepGaze
@@ -64,23 +60,22 @@ def fit_centerbias(stimuli, fixations, bandwidth=None, crossvalidated=True, eps=
     normalised log-density and which also provides ``information_gain(...)`` for baseline scoring.
 
     By default the KDE bandwidth is **fitted** to the data: it is chosen to maximise the mean
-    leave-one-image-out crossvalidated log-likelihood, optimised over ``log10(bandwidth)`` with a
-    bounded scalar search. Each dataset thus gets its own bandwidth (too-large a bandwidth washes
-    out the central-fixation structure; too-small overfits individual fixations).
+    leave-one-image-out crossvalidated log-likelihood. Each dataset thus gets its own bandwidth
+    (too-large a bandwidth washes out the central-fixation structure; too-small overfits individual
+    fixations).
 
     Args:
         stimuli, fixations: as returned by ``load_fixations_csv`` (or your own).
-        bandwidth: KDE bandwidth in image-diagonal units. If ``None`` (default) it is fitted; pass
-            a float to fix it and skip the search.
+        bandwidth: KDE bandwidth as a fraction of the image size. If ``None`` (default) it is
+            fitted; pass a float to fix it and skip the search.
         crossvalidated: type of the returned model at the chosen bandwidth. If True, a
             ``CrossvalidatedBaselineModel`` (leave-one-image-out; use it as the center-bias for the
             images it was fit on, no leakage); if False, a plain ``BaselineModel`` (uses all images;
             use it to predict on new held-out images).
-        eps: regularisation mixed with a uniform density in the returned model.
-        log_bandwidth_bounds: ``(low, high)`` bounds for ``log10(bandwidth)`` during the search.
-        fit_uniform_log_weight: log10 of the fixed uniform mixture weight used only to keep the CV
-            objective finite during the bandwidth search (not the returned model's ``eps``).
-        verbose: print the fitted bandwidth and its CV log-likelihood.
+        eps: weight of a uniform density mixed into the KDE, both for the returned model and to keep
+            the CV objective finite for outlier fixations during the search.
+        bandwidth_bounds: ``(low, high)`` bounds for the fitted bandwidth (fraction of image size).
+        verbose: print the fitted bandwidth and its CV score.
 
     Returns:
         A fitted pysaliency baseline model to pass as the center-bias.
@@ -91,21 +86,21 @@ def fit_centerbias(stimuli, fixations, bandwidth=None, crossvalidated=True, eps=
         # Fast leave-one-image-out CV objective: CrossvalMultipleRegularizations precomputes the
         # fixations in normalised sklearn form once and scores each bandwidth with an sklearn KDE
         # (resolution-independent), rather than re-running a full-resolution gaussian_filter per
-        # image per bandwidth. A tiny fixed uniform mixture keeps the CV log-likelihood finite for
-        # outlier fixations; we optimise only the (1-D) bandwidth.
+        # image per bandwidth. The optimiser works on log10(bandwidth) internally.
         crossvalidation = ScikitLearnImageCrossValidationGenerator(stimuli, fixations, leave_out_size=1)
         manager = CrossvalMultipleRegularizations(
             stimuli, fixations, OrderedDict([('uniform', pysaliency.UniformModel())]), crossvalidation)
+        log_eps = float(np.log10(eps))
 
         def neg_cv_score(log_bandwidth):
-            return -manager.score(log_bandwidth=float(log_bandwidth), log_uniform=fit_uniform_log_weight)
+            return -manager.score(log_bandwidth=float(log_bandwidth), log_uniform=log_eps)
 
-        result = minimize_scalar(neg_cv_score, bounds=log_bandwidth_bounds,
-                                 method='bounded', options={'xatol': 0.02})
+        result = minimize_scalar(
+            neg_cv_score, bounds=(np.log10(bandwidth_bounds[0]), np.log10(bandwidth_bounds[1])),
+            method='bounded', options={'xatol': 0.02})
         bandwidth = 10 ** result.x
         if verbose:
-            print(f"fit_centerbias: bandwidth={bandwidth:.4f} "
-                  f"(log10={result.x:.3f}), CV score={-result.fun:.4f} bit/fix")
+            print(f"fit_centerbias: bandwidth={bandwidth:.4f}, CV score={-result.fun:.4f} bit/fix")
 
     cls = CrossvalidatedBaselineModel if crossvalidated else BaselineModel
     return cls(stimuli, fixations, bandwidth=bandwidth, eps=eps)

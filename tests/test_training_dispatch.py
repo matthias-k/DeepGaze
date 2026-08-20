@@ -40,7 +40,7 @@ def test_dispatch_passes_only_supported_kwargs_to_explicit_model():
     m = _MSDBLike()
     out = _forward_with_supported_kwargs(
         m, torch.ones(1), torch.zeros(1),
-        {'x_hist': 1, 'y_hist': 2, 'durations': 3, 'pixel_per_dva': 35.0, 'dataset': None})
+        x_hist=1, y_hist=2, durations=3, pixel_per_dva=35.0, dataset=None)
     assert out == (35.0, None)   # scanpath kwargs dropped, msdb kwargs kept
 
 
@@ -48,6 +48,6 @@ def test_dispatch_passes_scanpath_kwargs_to_varkw_model():
     m = _ScanpathLike()
     out = _forward_with_supported_kwargs(
         m, torch.ones(1), torch.zeros(1),
-        {'x_hist': 7, 'y_hist': 8, 'durations': 9, 'pixel_per_dva': 35.0})
+        x_hist=7, y_hist=8, durations=9, pixel_per_dva=35.0)
     # scanpath model receives x_hist explicitly; pixel_per_dva flows via **kwargs
     assert out[1] == 7 and out[2].get('pixel_per_dva') == 35.0

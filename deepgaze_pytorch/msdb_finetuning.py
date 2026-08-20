@@ -15,9 +15,12 @@ Typical use::
     stimuli, fixations = load_fixations_csv('images/', 'fixations.csv')
     centerbias = fit_centerbias(stimuli, fixations)
     model = DeepGazeMSDB(pretrained=True)
-    model = finetune_new_dataset(model, stimuli, fixations, centerbias,
-                                 pixel_per_dva=21.75, train_directory='adaptation_run')
+    model, dataset_index = finetune_new_dataset(model, stimuli, fixations, centerbias,
+                                                pixel_per_dva=21.75)
+    log_density = model(image, centerbias_map, pixel_per_dva=21.75, dataset=dataset_index)
 """
+import tempfile
+
 import torch
 import torch.nn as nn
 
@@ -50,27 +53,33 @@ class FixedGeometryMSDB(nn.Module):
         return self.model.load_state_dict(*args, **kwargs)
 
 
-def finetune_new_dataset(model, stimuli, fixations, centerbias, pixel_per_dva,
-                         train_directory, train_stimuli=None, train_fixations=None,
-                         val_stimuli=None, val_fixations=None, dataset_index=None,
-                         lr=0.01, milestones=(6, 20, 24, 25, 27), minimum_learning_rate=5e-5,
-                         batch_size=4, validation_epochs=1, device=None):
+def finetune_new_dataset(model, train_stimuli, train_fixations, centerbias, pixel_per_dva,
+                         val_stimuli=None, val_fixations=None, train_directory=None,
+                         dataset_index=None, lr=0.01, milestones=(6, 20, 24, 25, 27),
+                         minimum_learning_rate=5e-5, batch_size=4, validation_epochs=1, device=None):
     """Adapt a pretrained ``DeepGazeMSDB`` to a new dataset and return the adapted model.
 
-    Adds a new dataset slot (via ``model.add_dataset()``), trains only its 13 scalars against the
-    given data with the provided center-bias, and returns the (unwrapped) adapted model. The
-    adapted per-dataset index is ``model.add_dataset``'s return value; after this call the new
-    dataset is the last slot and ``dataset=None`` still yields the original generalization average.
+    Adds a new dataset slot (via ``model.add_dataset()``), trains only its 13 scalars on the given
+    training data with the provided center-bias, and returns the (unwrapped) adapted model together
+    with the new slot's index. After this call the new dataset is the last slot and ``dataset=None``
+    still yields the original generalization average.
+
+    **Reloading a saved adapted model:** the adapted per-dataset tensors are one column wider than
+    the released model's, so a checkpoint saved from an adapted model (e.g.
+    ``<train_directory>/final.pth``, or ``model.head_state_dict()``) can only be loaded into a fresh
+    model that has already had the slot added -- call ``model.add_dataset()`` *before*
+    ``load_state_dict(..., strict=False)``.
 
     Args:
         model: a ``DeepGazeMSDB`` (typically ``pretrained=True``).
-        stimuli, fixations: the new dataset (used for both train and val if splits are not given).
+        train_stimuli, train_fixations: the new dataset to adapt to.
         centerbias: a center-bias model, e.g. from ``fit_centerbias`` (or your own).
         pixel_per_dva: pixels per degree of visual angle for the dataset's presentation.
+        val_stimuli, val_fixations: optional held-out data for the validation metric; if omitted,
+            the training data is used (fine for this small 13-parameter fit).
         train_directory: where checkpoints / logs are written (the final head-only weights land in
-            ``<train_directory>/final.pth``).
-        train_stimuli/train_fixations/val_stimuli/val_fixations: explicit splits; if omitted, the
-            same ``stimuli, fixations`` are used for training and validation.
+            ``<train_directory>/final.pth``). If ``None``, a temporary directory is used and removed
+            afterwards -- the adapted weights are still available in the returned model.
         dataset_index: if you already called ``model.add_dataset()`` (e.g. to verify the
             initialisation before training), pass the returned index here so a second slot is not
             added; otherwise a new slot is created automatically.
@@ -85,9 +94,8 @@ def finetune_new_dataset(model, stimuli, fixations, centerbias, pixel_per_dva,
     from deepgaze_pytorch.training import _train
 
     device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    if train_stimuli is None:
-        train_stimuli, train_fixations = stimuli, fixations
-        val_stimuli, val_fixations = stimuli, fixations
+    if val_stimuli is None:
+        val_stimuli, val_fixations = train_stimuli, train_fixations
 
     # add a new dataset slot, unless the caller already added one (e.g. to check the
     # initialisation before training) and passes its index in.
@@ -110,12 +118,17 @@ def finetune_new_dataset(model, stimuli, fixations, centerbias, pixel_per_dva,
     optimizer = torch.optim.Adam(model.dataset_parameters(), lr=lr)
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=list(milestones))
 
-    _train(train_directory, wrapped,
-           train_loader, train_baseline, val_loader, val_baseline,
-           optimizer, lr_scheduler,
-           minimum_learning_rate=minimum_learning_rate,
-           validation_epochs=validation_epochs,
-           state_dict_fn=model.head_state_dict,
-           device=device)
+    temporary_directory = tempfile.TemporaryDirectory() if train_directory is None else None
+    try:
+        _train(train_directory or temporary_directory.name, wrapped,
+               train_loader, train_baseline, val_loader, val_baseline,
+               optimizer, lr_scheduler,
+               minimum_learning_rate=minimum_learning_rate,
+               validation_epochs=validation_epochs,
+               state_dict_fn=model.head_state_dict,
+               device=device)
+    finally:
+        if temporary_directory is not None:
+            temporary_directory.cleanup()
 
     return model, dataset_index

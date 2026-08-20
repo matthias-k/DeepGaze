@@ -36,7 +36,7 @@ import inspect as _inspect
 _SCANPATH_KWARGS = ('x_hist', 'y_hist', 'durations')
 
 
-def _forward_with_supported_kwargs(model, image, centerbias, available):
+def _forward_with_supported_kwargs(model, image, centerbias, **available):
     """Call ``model(image, centerbias, ...)`` passing only the kwargs its forward supports.
 
     Replaces the old ``isinstance(model, DeepGazeII)`` branch. A model whose forward declares
@@ -103,11 +103,8 @@ def eval_epoch(model, dataset, baseline_information_gain, device, metrics=None):
             for key, value in dict(batch).items():
                 kwargs[key] = value.to(device)
 
-            available = dict(kwargs)
-            available.setdefault('x_hist', x_hist)
-            available.setdefault('y_hist', y_hist)
-            available.setdefault('durations', durations)
-            log_density = _forward_with_supported_kwargs(model, image, centerbias, available)
+            log_density = _forward_with_supported_kwargs(
+                model, image, centerbias, x_hist=x_hist, y_hist=y_hist, durations=durations, **kwargs)
 
             for metric_name, metric_fn in metric_functions.items():
                 if metric_name not in metrics:
@@ -147,11 +144,8 @@ def train_epoch(model, dataset, optimizer, device):
         for key, value in dict(batch).items():
             kwargs[key] = value.to(device)
 
-        available = dict(kwargs)
-        available.setdefault('x_hist', x_hist)
-        available.setdefault('y_hist', y_hist)
-        available.setdefault('durations', durations)
-        log_density = _forward_with_supported_kwargs(model, image, centerbias, available)
+        log_density = _forward_with_supported_kwargs(
+            model, image, centerbias, x_hist=x_hist, y_hist=y_hist, durations=durations, **kwargs)
 
         loss = -log_likelihood(log_density, fixation_mask, weights=weights)
         losses.append(loss.detach().cpu().numpy())

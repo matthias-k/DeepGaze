@@ -270,9 +270,8 @@ class _MultiScaleBackbone(nn.Module):
         """Append a per-dataset weight column to both scale-weight tensors, initialised so the
         normalised scale weights of the new column equal the ``dataset_index=None`` average of
         the original datasets. The weights live in log space and are averaged as
-        ``exp(w).mean(dim=1)`` in the None branch, so the correct log-space init of the new
-        column is ``logsumexp(w[:, :n], dim=1) - log(n)`` (the log of the arithmetic mean of
-        ``exp(w)``), NOT ``w.mean(dim=1)`` (which would be the geometric mean).
+        ``exp(w).mean(dim=1)`` in the None branch, so the new column is initialised to
+        ``logsumexp(w[:, :n], dim=1) - log(n)`` (the log of the arithmetic mean of ``exp(w)``).
         """
         def _widen(param):
             with torch.no_grad():
