@@ -62,10 +62,12 @@ def finetune_new_dataset(model, train_stimuli, train_fixations, centerbias, pixe
     with the new slot's index. After this call the new dataset is the last slot and ``dataset=None``
     still yields the original generalization average.
 
-    ``train_directory`` is required and persists the run: the final head-only weights land in
-    ``<train_directory>/final.pth`` and per-epoch checkpoints allow resuming. Re-running with the
-    same directory resumes an interrupted run, or returns immediately with the finished weights if
-    it already completed -- so a crash never costs the (potentially hours-long) training.
+    Resumable and re-run-safe (``train_directory`` is required for this): the run is persisted to
+    ``train_directory`` (final head-only weights at ``<train_directory>/final.pth``, plus per-epoch
+    checkpoints). **Calling this again with the same ``train_directory`` is cheap** -- a completed
+    run returns immediately with the adapted weights loaded, and an interrupted one resumes from its
+    last checkpoint. So a crash never costs the (potentially hours-long) training, and you can freely
+    re-run the call (e.g. a notebook cell) to get the model back without retraining.
 
     **Reloading a saved adapted model:** the adapted per-dataset tensors are one column wider than
     the released model's, so a checkpoint saved from an adapted model (``<train_directory>/final.pth``
