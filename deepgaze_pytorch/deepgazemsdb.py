@@ -51,6 +51,28 @@ _READOUT_FACTOR = 8
 _SALIENCY_MAP_FACTOR = 2
 
 
+def _freeze_all_but_new_slot(params, new_index):
+    """Register backward hooks so only the newly added dataset slot receives gradients.
+
+    The new slot is always the last column, appended at ``new_index`` (the model's width
+    before the append). Its index is NOT necessarily equal to ``n_generalization_datasets``
+    -- they differ when adapting with ``n_generalization_datasets`` smaller than the current
+    width, or on a second ``add_dataset()`` call -- so the mask must key on ``new_index``.
+    Every earlier column (all original datasets and any previously added slots) is frozen.
+    The dataset axis is the last axis of each per-dataset tensor, so ``[..., :new_index]``
+    selects everything but the new slot for both the 2D scale-weight tensors and the 1D
+    finalizer tensors.
+    """
+    def _make_mask(keep):
+        def _mask(grad):
+            grad = grad.clone()
+            grad[..., :keep] = 0
+            return grad
+        return _mask
+    for param in params:
+        param.register_hook(_make_mask(new_index))
+
+
 def _build_saliency_network(input_channels: int) -> nn.Sequential:
     """Build the saliency network.
 
@@ -564,15 +586,9 @@ class DeepGazeMSDB(nn.Module):
         for param in self.features.backbone.parameters():
             param.requires_grad = False
 
-        # Mask gradients so only the new slot trains (original columns/entries stay frozen)
-        def _make_mask(n):
-            def _mask(grad):
-                grad = grad.clone()
-                grad[..., :n] = 0
-                return grad
-            return _mask
-        for param in self.dataset_parameters():
-            param.register_hook(_make_mask(n))
+        # Mask gradients so only the new slot trains (all earlier slots stay frozen). The new
+        # slot is the last column (idx_a), which is NOT necessarily `n` -- see the helper.
+        _freeze_all_but_new_slot(self.dataset_parameters(), idx_a)
 
         return idx_a
 

@@ -1,7 +1,11 @@
 import math
 import pytest
 import torch
-from deepgaze_pytorch.deepgazemsdb import _DatasetAwareFinalizer, _MultiScaleBackbone
+from deepgaze_pytorch.deepgazemsdb import (
+    _DatasetAwareFinalizer,
+    _MultiScaleBackbone,
+    _freeze_all_but_new_slot,
+)
 
 
 def _rand_inputs(B=2, H=16, W=16, seed=0):
@@ -87,6 +91,48 @@ def test_multiscale_add_dataset_logsumexp_init_and_old_columns_frozen():
     assert torch.allclose(mod.size_weights.detach()[:, 5], expected_s, atol=1e-6)
     # sanity: the geometric-mean init would differ (guards against the 5.4x DAEMONS trap)
     assert not torch.allclose(expected_w, W0.mean(dim=1), atol=1e-3)
+
+
+def _dataset_param_shapes(n):
+    # same shapes/last-axis layout as DeepGazeMSDB.dataset_parameters(): two (5, n) + three (n,)
+    return [torch.nn.Parameter(torch.randn(5, n)),
+            torch.nn.Parameter(torch.randn(5, n)),
+            torch.nn.Parameter(torch.randn(n)),
+            torch.nn.Parameter(torch.randn(n)),
+            torch.nn.Parameter(torch.randn(n))]
+
+
+def test_gradient_mask_trains_only_the_new_slot():
+    # fresh 5-slot model: new slot appended at index 5, width 6
+    params = _dataset_param_shapes(6)
+    _freeze_all_but_new_slot(params, new_index=5)
+    sum(p.sum() for p in params).backward()
+    for p in params:
+        assert torch.equal(p.grad[..., :5], torch.zeros_like(p.grad[..., :5]))  # all originals frozen
+        assert (p.grad[..., 5] != 0).any()                                       # only the new slot moves
+
+
+def test_gradient_mask_new_index_differs_from_generalization_count():
+    # regression for the boundary bug: the new slot index (5) must drive the mask, NOT
+    # n_generalization_datasets. With n=3 the old code froze only cols 0-2, leaking grads
+    # into built-in datasets 3 and 4.
+    params = _dataset_param_shapes(6)
+    _freeze_all_but_new_slot(params, new_index=5)  # new slot is always the last column
+    sum(p.sum() for p in params).backward()
+    for p in params:
+        assert torch.equal(p.grad[..., 3], torch.zeros_like(p.grad[..., 3]))  # DAEMONS stays frozen
+        assert torch.equal(p.grad[..., 4], torch.zeros_like(p.grad[..., 4]))  # FIGRIM stays frozen
+
+
+def test_gradient_mask_second_added_slot_freezes_first():
+    # after two add_dataset() calls the model is width 7; only the last slot (index 6) trains,
+    # and the first-added slot (index 5) must stay frozen.
+    params = _dataset_param_shapes(7)
+    _freeze_all_but_new_slot(params, new_index=6)
+    sum(p.sum() for p in params).backward()
+    for p in params:
+        assert torch.equal(p.grad[..., :6], torch.zeros_like(p.grad[..., :6]))  # incl. first-added slot 5
+        assert (p.grad[..., 6] != 0).any()
 
 
 @pytest.mark.slow
