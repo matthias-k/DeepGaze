@@ -69,6 +69,12 @@ def finetune_new_dataset(model, train_stimuli, train_fixations, centerbias, pixe
     last checkpoint. So a crash never costs the (potentially hours-long) training, and you can freely
     re-run the call (e.g. a notebook cell) to get the model back without retraining.
 
+    Each call adds a *new* dataset slot, so when re-running pass a freshly constructed
+    ``DeepGazeMSDB(pretrained=True)`` (the usual notebook pattern -- construct the model and call
+    this in the same cell). Reusing a model that this function already adapted would widen it a
+    second time and fail to load the saved (narrower) checkpoint; a clear error is raised in that
+    case. To adapt to a *second* real dataset, call this again with a different ``train_directory``.
+
     **Reloading a saved adapted model:** the adapted per-dataset tensors are one column wider than
     the released model's, so a checkpoint saved from an adapted model (``<train_directory>/final.pth``
     or ``model.head_state_dict()``) can only be loaded into a fresh model that has already had the
@@ -135,6 +141,17 @@ def finetune_new_dataset(model, train_stimuli, train_fixations, centerbias, pixe
     # carries the adapted weights, including on a re-run that skipped a completed training.
     final_path = os.path.join(train_directory, 'final.pth')
     if os.path.exists(final_path):
-        model.load_state_dict(torch.load(final_path, weights_only=True), strict=False)
+        try:
+            model.load_state_dict(torch.load(final_path, weights_only=True), strict=False)
+        except RuntimeError as e:
+            # strict=False ignores missing/unexpected keys but NOT shape mismatches: this fires
+            # when the model is one slot wider than the saved checkpoint, i.e. an already-adapted
+            # model was reused instead of a fresh one.
+            raise RuntimeError(
+                f"Failed to load adapted weights from {final_path} ({e}). This usually means the "
+                f"model was already adapted (its per-dataset tensors are wider than the saved "
+                f"checkpoint). finetune_new_dataset adds a new slot on every call -- pass a freshly "
+                f"constructed DeepGazeMSDB (or the matching dataset_index) when re-running."
+            ) from e
 
     return model, dataset_index
