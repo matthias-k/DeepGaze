@@ -32,7 +32,7 @@ def load_fixations_csv(image_dir, csv_path, image_column='image', x_column='x', 
         image_column, x_column, y_column: column names in the CSV.
 
     Returns:
-        ``(stimuli, fixations)`` ready for ``fit_centerbias`` / ``finetune_new_dataset`` or any
+        ``(stimuli, fixations)`` ready for ``fit_centerbias`` / ``adapt_dataset_parameters`` or any
         DeepGaze model.
     """
     import pandas as pd

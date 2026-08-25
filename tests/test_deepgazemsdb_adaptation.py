@@ -190,7 +190,7 @@ def test_msdb_train_returns_self():
 
 
 def test_fixed_geometry_wrapper_absorbs_scanpath_args_and_delegates_state_dict():
-    from deepgaze_pytorch.msdb_finetuning import FixedGeometryMSDB
+    from deepgaze_pytorch.msdb_adaptation import FixedGeometryMSDB
 
     class _StubMSDB(torch.nn.Module):
         def __init__(self):

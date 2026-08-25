@@ -57,12 +57,12 @@ log_density_prediction = model(image_tensor, centerbias_tensor, pixel_per_dva=35
 
 DeepGaze MSDB can be *adapted* to a new dataset by adding a dataset slot and training its per-dataset parameters (13 scalars) while the CLIP+DINOv2 backbone and the saliency network stay frozen. The new slot is initialised from the average of the model's original datasets, so it starts from the generalization behaviour and only needs a little data to specialise. Adapting does not change the predictions for the built-in datasets, so `dataset=MSDBDataset.MIT1003` (etc.) keeps working afterwards.
 
-You bring your data as an image folder plus a CSV of fixations (columns `image`, `x`, `y` in pixels):
+You bring your data either directly as pysaliency `stimuli, fixations` objects, or — via the convenience helper — as an image folder plus a CSV of fixations (columns `image`, `x`, `y` in pixels):
 
 ```python
 from deepgaze_pytorch import DeepGazeMSDB
 from deepgaze_pytorch.custom_data import load_fixations_csv, fit_centerbias
-from deepgaze_pytorch.msdb_finetuning import finetune_new_dataset
+from deepgaze_pytorch.msdb_adaptation import adapt_dataset_parameters
 
 # 1. load your data (or bring your own pysaliency stimuli/fixations)
 stimuli, fixations = load_fixations_csv('images/', 'fixations.csv')
@@ -73,7 +73,7 @@ centerbias = fit_centerbias(stimuli, fixations)
 # 3. adapt: adds a new dataset slot and trains its 13 parameters
 #    (train_directory persists checkpoints so an interrupted run can be resumed)
 model = DeepGazeMSDB(pretrained=True)
-model, new_dataset_index = finetune_new_dataset(
+model, new_dataset_index = adapt_dataset_parameters(
     model, stimuli, fixations, centerbias,
     pixel_per_dva=21.75,               # pixels per degree of your presentation
     train_directory='adaptation_run',
@@ -89,7 +89,7 @@ torch.save(model.head_state_dict(), 'deepgazemsdb_mydataset.pth')
 
 `load_fixations_csv` and `fit_centerbias` are convenience helpers — if you already have pysaliency `stimuli, fixations`, or your own center-bias model, pass them straight in. `model.head_state_dict()` is a head-only checkpoint in the same format as the released weights; to reload it, build a `DeepGazeMSDB`, call `model.add_dataset()` (so the parameter shapes match), then `model.load_state_dict(torch.load('deepgazemsdb_mydataset.pth'), strict=False)`.
 
-See [finetune_deepgazemsdb.ipynb](finetune_deepgazemsdb.ipynb) for a full worked example on a public dataset.
+See [adapt_deepgazemsdb.ipynb](adapt_deepgazemsdb.ipynb) for a full worked example on a public dataset.
 
 
 ### DeepGaze IIE (Spatial Saliency Model)

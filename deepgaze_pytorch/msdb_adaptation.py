@@ -1,22 +1,23 @@
-"""Fine-tune (adapt) DeepGaze MSDB to a new dataset.
+"""Adapt DeepGaze MSDB to a new dataset (dataset-parameter adaptation).
 
 Adaptation adds one per-dataset parameter slot to a pretrained model and trains its 13 scalars
 (the multi-scale weights, gaussian sigma, center-bias weight and priority scaling) while the
 CLIP+DINOv2 backbone and the saliency network stay frozen. Because the new slot is initialised
 from the average of the original datasets, it starts from the model's generalization behaviour
-and only needs a little data to specialise.
+and only needs a little data to specialise. This is the "adapting the dataset-specific
+parameters to new data" procedure from the Modeling Saliency Dataset Bias paper (ICCV 2025).
 
 Typical use::
 
     from deepgaze_pytorch import DeepGazeMSDB
     from deepgaze_pytorch.custom_data import load_fixations_csv, fit_centerbias
-    from deepgaze_pytorch.msdb_finetuning import finetune_new_dataset
+    from deepgaze_pytorch.msdb_adaptation import adapt_dataset_parameters
 
     stimuli, fixations = load_fixations_csv('images/', 'fixations.csv')
     centerbias = fit_centerbias(stimuli, fixations)
     model = DeepGazeMSDB(pretrained=True)
-    model, dataset_index = finetune_new_dataset(model, stimuli, fixations, centerbias,
-                                                pixel_per_dva=21.75, train_directory='adaptation_run')
+    model, dataset_index = adapt_dataset_parameters(model, stimuli, fixations, centerbias,
+                                                    pixel_per_dva=21.75, train_directory='adaptation_run')
     log_density = model(image, centerbias_map, pixel_per_dva=21.75, dataset=dataset_index)
 """
 import torch
@@ -51,10 +52,10 @@ class FixedGeometryMSDB(nn.Module):
         return self.model.load_state_dict(*args, **kwargs)
 
 
-def finetune_new_dataset(model, train_stimuli, train_fixations, centerbias, pixel_per_dva,
-                         train_directory, val_stimuli=None, val_fixations=None,
-                         dataset_index=None, lr=0.01, milestones=(6, 20, 24, 25, 27),
-                         minimum_learning_rate=5e-5, batch_size=4, validation_epochs=1, device=None):
+def adapt_dataset_parameters(model, train_stimuli, train_fixations, centerbias, pixel_per_dva,
+                             train_directory, val_stimuli=None, val_fixations=None,
+                             dataset_index=None, lr=0.01, milestones=(6, 20, 24, 25, 27),
+                             minimum_learning_rate=5e-5, batch_size=4, validation_epochs=1, device=None):
     """Adapt a pretrained ``DeepGazeMSDB`` to a new dataset and return the adapted model.
 
     Adds a new dataset slot (via ``model.add_dataset()``), trains only its 13 scalars on the given
@@ -150,7 +151,7 @@ def finetune_new_dataset(model, train_stimuli, train_fixations, centerbias, pixe
             raise RuntimeError(
                 f"Failed to load adapted weights from {final_path} ({e}). This usually means the "
                 f"model was already adapted (its per-dataset tensors are wider than the saved "
-                f"checkpoint). finetune_new_dataset adds a new slot on every call -- pass a freshly "
+                f"checkpoint). adapt_dataset_parameters adds a new slot on every call -- pass a freshly "
                 f"constructed DeepGazeMSDB (or the matching dataset_index) when re-running."
             ) from e
 
