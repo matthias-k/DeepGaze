@@ -190,7 +190,8 @@ def train(task, train_items, val_items, parameters, directory: str, lr: float, v
     """Adam; the learning rate drops by 10x at ``milestones`` (epochs, as in train_deepgaze3.ipynb) or,
     without milestones, when the validation LL (image-averaged) stops improving for ``patience``
     epochs. Training stops once the learning rate falls below ``min_lr``. Keeps the best validation
-    state (``best.pth``) and resumes from ``last.pth`` if the directory already holds a run.
+    state (``best.pth``; epoch 0, the untrained starting point, is validated too) and resumes from
+    ``last.pth`` if the directory already holds a run.
     ``val_task`` evaluates the validation images if they need other loaders than the training images
     (same model).
     """
@@ -212,6 +213,18 @@ def train(task, train_items, val_items, parameters, directory: str, lr: float, v
         scheduler.load_state_dict(checkpoint['scheduler'])
         history, epoch, best = checkpoint['history'], checkpoint['epoch'], checkpoint['best']
         log(f"resumed from epoch {epoch}")
+
+    if not history:
+        # epoch 0: the starting point (e.g. the pretrained spatial model) as the reference to beat
+        task.model.eval()
+        started = time.time()
+        val_lls = run_epoch(val_task, val_items, chunk_size=chunk_size, device=device)
+        row = {'epoch': 0, 'lr': optimizer.param_groups[0]['lr'], 'val': summarize(val_lls, val_baseline),
+               'seconds': {'val': round(time.time() - started, 1)}}
+        history.append(row)
+        best = row['val']['LL_image']
+        torch.save(state_dict_fn(), os.path.join(directory, 'best.pth'))
+        log(json.dumps(row))
 
     rng = np.random.RandomState(seed + epoch)
     while epoch < max_epochs and optimizer.param_groups[0]['lr'] >= min_lr:
