@@ -113,6 +113,10 @@ def stage_salicon(args, device):
     model = build_model(scanpath=False, downsample=1.5).to(device)
     train_items = limited(group_by_image(train_stimuli, train_fixations, common.INCLUDED_FIXATIONS, with_history=False), args.limit)
     val_items = limited(group_by_image(val_stimuli, val_fixations, common.INCLUDED_FIXATIONS, with_history=False), args.limit)
+    if args.salicon_val_images is not None:
+        # a fixed random subset of the validation images keeps the per-epoch validation affordable
+        chosen = set(np.random.RandomState(0).choice(len(val_stimuli), args.salicon_val_images, replace=False).tolist())
+        val_items = [item for item in val_items if item.index in chosen]
     train(DeepGazeIIITask(model, common.image_loader(train_stimuli, device), lambda n: centerbias),
           train_items, val_items, [p for p in model.parameters() if p.requires_grad], str(run_dir('salicon')),
           lr=1e-3, min_lr=args.min_lr, milestones=args.milestones or SALICON_MILESTONES, max_epochs=args.max_epochs,
@@ -184,6 +188,7 @@ def main():
     parser.add_argument('--min-lr', type=float, default=1e-7)
     parser.add_argument('--patience', type=int, default=2)
     parser.add_argument('--max-epochs', type=int, default=100)
+    parser.add_argument('--salicon-val-images', type=int, help='SALICON: validate on this many (fixed) images')
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--limit', type=int, help='only images with index < N (smoke test)')
     args = parser.parse_args()

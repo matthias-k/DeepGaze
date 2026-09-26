@@ -13,6 +13,7 @@ chunk of histories (see ``scanpath_utils.log_density_at`` for the normalization)
 import json
 import math
 import os
+import time
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence
 
@@ -56,30 +57,37 @@ def group_by_image(stimuli, fixations, included_fixations: Sequence[int], with_h
     """Group fixations by image.
 
     With ``with_history`` (scanpath models) only fixations with at least one previous fixation are
-    scored. Without it (spatial models) all fixations are used and the histories are left empty.
+    scored. Without it (spatial models) all fixations are used and the histories are empty (zero
+    columns). Works in O(N log N), so it also handles datasets with tens of millions of fixations.
     """
     if with_history:
         scored = fixations[fixations.lengths > 0]
         x_hist, y_hist = history_arrays(scored, included_fixations)
     else:
         scored = fixations
-        x_hist = np.full((len(scored), len(included_fixations)), np.nan)
-        y_hist = np.full((len(scored), len(included_fixations)), np.nan)
+        x_hist = y_hist = None
     sizes = stimuli.sizes
     xs = np.asarray(scored.x_int, dtype=np.int64)
     ys = np.asarray(scored.y_int, dtype=np.int64)
     ns = np.asarray(scored.n, dtype=np.int64)
+    order = np.argsort(ns, kind='stable')
+    boundaries = np.flatnonzero(np.diff(ns[order])) + 1
     items = []
-    for n in np.unique(ns):
-        mask = ns == n
+    for group in np.split(order, boundaries):
+        if not len(group):
+            continue
+        n = int(ns[group[0]])
         height, width = sizes[n]
-        if xs[mask].min() < 0 or ys[mask].min() < 0 or xs[mask].max() >= width or ys[mask].max() >= height:
+        gx, gy = xs[group], ys[group]
+        if gx.min() < 0 or gy.min() < 0 or gx.max() >= width or gy.max() >= height:
             raise ValueError(f"fixation outside image {n} ({width}x{height})")
-        items.append(ImageFixations(
-            index=int(n), image_size=(int(height), int(width)),
-            xs=torch.from_numpy(xs[mask]), ys=torch.from_numpy(ys[mask]),
-            x_hist=torch.from_numpy(x_hist[mask]).float(), y_hist=torch.from_numpy(y_hist[mask]).float(),
-        ))
+        if with_history:
+            hx = torch.from_numpy(x_hist[group]).float()
+            hy = torch.from_numpy(y_hist[group]).float()
+        else:
+            hx = hy = torch.zeros((len(group), 0))
+        items.append(ImageFixations(index=n, image_size=(int(height), int(width)),
+                                    xs=torch.from_numpy(gx), ys=torch.from_numpy(gy), x_hist=hx, y_hist=hy))
     return items
 
 
@@ -207,13 +215,16 @@ def train(task, train_items, val_items, parameters, directory: str, lr: float, v
 
     rng = np.random.RandomState(seed + epoch)
     while epoch < max_epochs and optimizer.param_groups[0]['lr'] >= min_lr:
+        started = time.time()
         task.model.train()
         train_lls = run_epoch(task, train_items, optimizer=optimizer, chunk_size=chunk_size, rng=rng, device=device)
+        trained = time.time()
         task.model.eval()
         val_lls = run_epoch(val_task, val_items, chunk_size=chunk_size, device=device)
         epoch += 1
         row = {'epoch': epoch, 'lr': optimizer.param_groups[0]['lr'],
-               'train': summarize(train_lls), 'val': summarize(val_lls, val_baseline)}
+               'train': summarize(train_lls), 'val': summarize(val_lls, val_baseline),
+               'seconds': {'train': round(trained - started, 1), 'val': round(time.time() - trained, 1)}}
         history.append(row)
         score = row['val']['LL_image']
         if score > best:

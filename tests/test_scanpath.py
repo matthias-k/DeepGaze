@@ -288,3 +288,20 @@ def test_spatial_task_scores_all_fixations_with_one_prediction():
     before = [p.detach().clone() for p in trainable]
     run_epoch(task, [item], optimizer=optimizer, device='cpu')
     assert any(not torch.equal(a, b) for a, b in zip(before, trainable))
+
+
+def test_spatial_grouping_keeps_all_fixations_in_order(tmp_path):
+    import pysaliency
+    from PIL import Image
+    files = []
+    for i in range(3):
+        path = tmp_path / f'{i}.png'
+        Image.fromarray(np.zeros((10, 12, 3), np.uint8)).save(path)
+        files.append(str(path))
+    stimuli = pysaliency.FileStimuli(files)
+    fixations = pysaliency.Fixations.create_without_history(
+        x=np.array([1.0, 2.0, 3.0, 4.0, 5.0]), y=np.array([1.0, 1.0, 2.0, 2.0, 3.0]), n=np.array([2, 0, 2, 0, 2]))
+    items = group_by_image(stimuli, fixations, [-1, -2, -3, -4], with_history=False)
+    assert [item.index for item in items] == [0, 2]
+    assert items[0].xs.tolist() == [2, 4] and items[1].xs.tolist() == [1, 3, 5]
+    assert items[1].x_hist.shape == (3, 0)

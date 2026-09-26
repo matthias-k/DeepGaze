@@ -11,6 +11,8 @@ Models:
   dg3msdb           DeepGaze III scanpath part trained on MSDB (runs/<run>/fold<k>/best.pth)
   dg3_component<k>  one component (cross-validation fold) of the released DeepGaze III
   dg3_mixture       the released DeepGaze III (all 10 folds; not held out on any MIT1003 fold)
+  <dg3 model>_native  the same DeepGaze III model at the dataset's own resolution (no rescaling), to
+                    check that the rescaling to its training resolution does not handicap it
   densenet_<variant>  DeepGaze III retrained by train_densenet.py on ``stretched`` or ``original``
                     MIT1003 (on mit1003_fold<k> the fold-k model, on OSIE the ``--densenet-fold`` model)
 
@@ -79,9 +81,9 @@ def load_dataset(name):
     raise ValueError(name)
 
 
-def deepgaze3_task(model, stimuli, load_centerbias, pixel_per_dva, device, components):
-    """Released DeepGaze III at its training resolution (35 pixels per degree)."""
-    scale = common.MIT1003_PIXEL_PER_DVA / pixel_per_dva
+def deepgaze3_task(model, stimuli, load_centerbias, pixel_per_dva, device, components, native=False):
+    """DeepGaze III at its training resolution (35 pixels per degree), or unscaled with ``native``."""
+    scale = 1 if native else common.MIT1003_PIXEL_PER_DVA / pixel_per_dva
     load_image = common.image_loader(stimuli, device=device)
     if scale == 1:
         return DeepGazeIIITask(model, load_image, lambda n: load_centerbias(n, device), components=components)
@@ -117,19 +119,21 @@ def build_task(model_name, stimuli, load_centerbias, pixel_per_dva, msdb_dataset
             load_head(model, torch.load(common.RUNS / run / 'best.pth', map_location=device))
         return MSDBScanpathTask(model, lambda n: load_centerbias(n, device), pixel_per_dva, msdb_dataset,
                                 saliency_maps=saliency_loader(cache_name, device))
-    match = re.fullmatch(r'densenet_(stretched|original)', model_name)
+    native = model_name.endswith('_native')
+    base_name = model_name[:-len('_native')] if native else model_name
+    match = re.fullmatch(r'densenet_(stretched|original)', base_name)
     if match:
         import train_densenet
         model = train_densenet.build_model(scanpath=True, downsample=2).to(device).eval()
         checkpoint = train_densenet.run_dir(match.group(1), f'fold{densenet_fold}', 'scanpath_full') / 'best.pth'
         train_densenet.load_trainable(model, torch.load(checkpoint, map_location=device))
-        return deepgaze3_task(model, stimuli, load_centerbias, pixel_per_dva, device, None)
-    match = re.fullmatch(r'dg3_component(\d+)|dg3_mixture', model_name)
+        return deepgaze3_task(model, stimuli, load_centerbias, pixel_per_dva, device, None, native)
+    match = re.fullmatch(r'dg3_component(\d+)|dg3_mixture', base_name)
     if match:
         from deepgaze_pytorch import DeepGazeIII
         model = DeepGazeIII(pretrained=True).to(device).eval()
-        components = None if model_name == 'dg3_mixture' else [int(match.group(1))]
-        return deepgaze3_task(model, stimuli, load_centerbias, pixel_per_dva, device, components)
+        components = None if base_name == 'dg3_mixture' else [int(match.group(1))]
+        return deepgaze3_task(model, stimuli, load_centerbias, pixel_per_dva, device, components, native)
     raise ValueError(model_name)
 
 

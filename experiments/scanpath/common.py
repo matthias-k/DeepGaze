@@ -63,8 +63,9 @@ def load_mit1003_stretched():
         filenames.append(str(target))
     new_stimuli = pysaliency.FileStimuli(filenames)
 
-    train_xs = [x.copy() for x in scanpaths.train_xs]
-    train_ys = [y.copy() for y in scanpaths.train_ys]
+    # as convert_fixation_trains in the notebook: rows of the NaN-padded scanpath arrays are rescaled
+    train_xs = scanpaths.train_xs.copy()
+    train_ys = scanpaths.train_ys.copy()
     for i, n in enumerate(scanpaths.train_ns):
         height, width = stimuli.sizes[n]
         new_height, new_width = _stretched_size(height, width)
