@@ -49,6 +49,7 @@ _INPUT_CHANNELS = 2560  # CLIP (1792) + DINOv2 (768)
 _N_DATASETS = 5
 _READOUT_FACTOR = 8
 _SALIENCY_MAP_FACTOR = 2
+_WEIGHTS_URL = 'https://github.com/matthias-k/DeepGaze/releases/download/v1.2.0/deepgazemsdb.pth'
 
 
 def _freeze_all_but_new_slot(params, new_index):
@@ -141,6 +142,12 @@ class _DatasetAwareGaussianFilter(nn.Module):
         else:
             sigmas = self.dataset_sigmas[dataset_indices]
 
+        if len(set(scaling_factors)) == 1 and (dataset_indices is None or bool((dataset_indices == dataset_indices[0]).all())):
+            # every item uses the same kernel (e.g. many fixations on one image): filter in one call
+            for dim in self.dims:
+                tensor = gaussian_filter_1d(tensor, dim=dim, sigma=sigmas[0] * scaling_factors[0], truncate=self.truncate)
+            return tensor
+
         outputs = []
         for image_data, scaling, sigma in zip(tensor, scaling_factors, sigmas):
             item = image_data.unsqueeze(0)
@@ -210,6 +217,24 @@ class _DatasetAwareFinalizer(nn.Module):
             size=(readout.shape[2], readout.shape[3])
         )[:, 0, :, :]
 
+        out = self.combine(readout, downscaled_centerbias, scaling_factors, dataset_indices)
+
+        # Upscale to original size
+        out = F.interpolate(
+            out[:, np.newaxis, :, :],
+            size=[centerbias.shape[1], centerbias.shape[2]],
+            mode='nearest',
+        )[:, 0, :, :]
+
+        # Normalize to log probability
+        out = out - out.logsumexp(dim=(1, 2), keepdim=True)
+
+        return out
+
+    def combine(self, readout: torch.Tensor, downscaled_centerbias: torch.Tensor,
+                scaling_factors: List[float], dataset_indices: Optional[torch.Tensor]) -> torch.Tensor:
+        """Unnormalized log density at readout resolution: blurred, priority-scaled readout plus
+        the weighted (already downscaled) center bias. ``forward`` upsamples and normalizes it."""
         # Apply gaussian filter
         out = self.gauss(readout, scaling_factors, dataset_indices)
         out = out[:, 0, :, :]
@@ -240,19 +265,7 @@ class _DatasetAwareFinalizer(nn.Module):
             centerbias_weight = source.mean()
             centerbias_weights = centerbias_weight.view(1, 1, 1)
 
-        out = out + centerbias_weights * downscaled_centerbias
-
-        # Upscale to original size
-        out = F.interpolate(
-            out[:, np.newaxis, :, :],
-            size=[centerbias.shape[1], centerbias.shape[2]],
-            mode='nearest',
-        )[:, 0, :, :]
-
-        # Normalize to log probability
-        out = out - out.logsumexp(dim=(1, 2), keepdim=True)
-
-        return out
+        return out + centerbias_weights * downscaled_centerbias
 
 
 class _MultiScaleBackbone(nn.Module):
@@ -500,10 +513,7 @@ class DeepGazeMSDB(nn.Module):
         # loaded by CLIP/DINOv2, checkpoint only contains head weights)
         if pretrained:
             self.load_state_dict(
-                model_zoo.load_url(
-                    'https://github.com/matthias-k/DeepGaze/releases/download/v1.2.0/deepgazemsdb.pth',
-                    map_location=torch.device('cpu')
-                ),
+                model_zoo.load_url(_WEIGHTS_URL, map_location=torch.device('cpu')),
                 strict=False
             )
 
