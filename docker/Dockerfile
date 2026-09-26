@@ -9,10 +9,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && echo "pkg load statistics" >> /usr/share/octave/site/m/startup/octaverc
 
-# numpy<2.4: pysaliency's ROC code calls np.trapz, which numpy 2.4 removed; gdown: pysaliency downloads SALICON from Google Drive;
-# h5py: pysaliency stores datasets as HDF5
+# numpy<2: pysaliency 0.2.22 (PyPI) uses NumPy 1 APIs (np.string_ when storing datasets, np.trapz in
+# the ROC code); gdown: pysaliency downloads SALICON from Google Drive; h5py: datasets are stored as HDF5
 RUN pip install --no-cache-dir \
-        "numpy<2.4" boltons ipython lmdb matplotlib pandas pillow pysaliency pyyaml \
+        "numpy<2" boltons ipython lmdb matplotlib pandas pillow pysaliency pyyaml \
         scikit-learn scipy tensorboard tqdm pytest gdown h5py \
         "clip @ git+https://github.com/openai/CLIP.git"
 

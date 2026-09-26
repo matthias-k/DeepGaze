@@ -1,7 +1,8 @@
 """Datasets, splits and caches shared by the scanpath experiments.
 
-Paths come from the environment: ``DEEPGAZE_DATA`` (datasets and caches, default ``/data``) and
-``DEEPGAZE_RUNS`` (training runs and results, default ``/data/runs``).
+Paths come from the environment: ``DEEPGAZE_DATA`` (datasets, default ``/data``), ``DEEPGAZE_CACHE``
+(center-bias and priority-map caches, default ``$DEEPGAZE_DATA/cache``) and ``DEEPGAZE_RUNS``
+(training runs and results, default ``$DEEPGAZE_DATA/runs``).
 """
 import os
 from pathlib import Path
@@ -20,7 +21,7 @@ from deepgaze_pytorch.scanpath_training import group_by_image
 DATA = Path(os.environ.get('DEEPGAZE_DATA', '/data'))
 RUNS = Path(os.environ.get('DEEPGAZE_RUNS', DATA / 'runs'))
 DATASETS = DATA / 'pysaliency_datasets'
-CACHE = DATA / 'cache'
+CACHE = Path(os.environ.get('DEEPGAZE_CACHE', DATA / 'cache'))
 
 MIT1003_PIXEL_PER_DVA = 35.0  # DeepGaze MSDB README / DeepGaze III training resolution
 OSIE_PIXEL_PER_DVA = 24.0     # Xu et al. 2014: 800 x 600 images, 1 degree ~ 24 pixels

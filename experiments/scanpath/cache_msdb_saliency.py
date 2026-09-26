@@ -41,16 +41,18 @@ def saliency_loader(name, device='cpu'):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('dataset', choices=sorted(DATASETS))
+    parser.add_argument('--device', default='cuda')
+    parser.add_argument('--limit', type=int, help='only the first N images (smoke test)')
     args = parser.parse_args()
     load, pixel_per_dva, dataset = DATASETS[args.dataset]
     stimuli, _ = load()
     directory = cache_directory(args.dataset)
     directory.mkdir(parents=True, exist_ok=True)
 
-    device = torch.device('cuda')
+    device = torch.device(args.device)
     model = DeepGazeIIIMSDB(pretrained_msdb=True, with_backbone=True).to(device).eval()
     load_image = common.image_loader(stimuli, device=device)
-    todo = [n for n in range(len(stimuli)) if not (directory / f'{n}.npy').exists()]
+    todo = [n for n in range(len(stimuli) if args.limit is None else args.limit) if not (directory / f'{n}.npy').exists()]
     print(f"{args.dataset}: {len(todo)} of {len(stimuli)} images to compute", flush=True)
     start = time.time()
     with torch.no_grad():
@@ -61,8 +63,8 @@ def main():
             np.save(directory / f'{n}.npy', saliency.cpu().numpy().astype(np.float32))
             if done % 50 == 0 or done == len(todo):
                 elapsed = time.time() - start
-                print(f"{done}/{len(todo)} images, {elapsed / done:.2f} s/image, "
-                      f"max memory {torch.cuda.max_memory_allocated() / 2 ** 30:.1f} GiB", flush=True)
+                memory = torch.cuda.max_memory_allocated() / 2 ** 30 if device.type == 'cuda' else float('nan')
+                print(f"{done}/{len(todo)} images, {elapsed / done:.2f} s/image, max memory {memory:.1f} GiB", flush=True)
 
 
 if __name__ == '__main__':

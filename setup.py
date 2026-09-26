@@ -56,8 +56,9 @@ setup(
             'ipython',
             'lmdb',
             'matplotlib',
-            # pysaliency's ROC / AUC code calls np.trapz, which numpy 2.4 removed
-            'numpy<2.4',
+            # pysaliency 0.2.22 (PyPI) uses NumPy 1 APIs: np.string_ when storing datasets, np.trapz in
+            # the ROC / AUC code
+            'numpy<2',
             'pandas',
             'pillow',
             'pysaliency',

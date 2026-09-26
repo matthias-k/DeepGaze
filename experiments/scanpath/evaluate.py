@@ -189,11 +189,15 @@ def main():
     parser.add_argument('--run', default='msdb_scanpath/fold0', help='training run of dg3msdb')
     parser.add_argument('--densenet-fold', type=int, help='fold of the densenet_* models (default: the test fold, 0 on OSIE)')
     parser.add_argument('--chunk-size', type=int, default=16)
+    parser.add_argument('--device', default='cuda')
+    parser.add_argument('--limit', type=int, help='only images with index < N (smoke test)')
     args = parser.parse_args()
 
     if args.models:
-        device = torch.device('cuda')
+        device = torch.device(args.device)
         stimuli, items, load_centerbias, ppd, msdb_dataset, cache_name = load_dataset(args.dataset)
+        if args.limit is not None:
+            items = [item for item in items if item.index < args.limit]
         densenet_fold = args.densenet_fold
         if densenet_fold is None:
             densenet_fold = int(args.dataset[len('mit1003_fold'):]) if args.dataset.startswith('mit1003_fold') else 0

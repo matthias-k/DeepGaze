@@ -122,7 +122,8 @@ def stage_salicon(args, device):
 
 def mit1003_items(variant, fold, device, with_history):
     stimuli, scanpaths = common.load_mit1003_stretched() if variant == 'stretched' else common.load_mit1003()
-    load_centerbias = common.centerbias_cache(f'mit1003_{variant}', stimuli, common.mit1003_centerbias_model(stimuli, scanpaths))
+    cache_name = 'mit1003_stretched' if variant == 'stretched' else 'mit1003'  # 'mit1003' is shared with evaluate.py
+    load_centerbias = common.centerbias_cache(cache_name, stimuli, common.mit1003_centerbias_model(stimuli, scanpaths))
     items = {item.index: item for item in group_by_image(stimuli, scanpaths[scanpaths.lengths > 0] if not with_history else scanpaths,
                                                           common.INCLUDED_FIXATIONS, with_history=with_history)}
     train_idx, val_idx, _ = common.split_indices(len(stimuli), fold)

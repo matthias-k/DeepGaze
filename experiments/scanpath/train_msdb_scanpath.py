@@ -51,15 +51,18 @@ def main():
     parser.add_argument('--max-epochs', type=int, default=60)
     parser.add_argument('--chunk-size', type=int, default=48)
     parser.add_argument('--name', default='msdb_scanpath')
+    parser.add_argument('--device', default='cuda')
+    parser.add_argument('--limit', type=int, help='only images with index < N (smoke test)')
     args = parser.parse_args()
 
-    device = torch.device('cuda')
+    device = torch.device(args.device)
     stimuli, scanpaths = common.load_mit1003()
     items = common.items_by_index(stimuli, scanpaths)
     load_centerbias = common.centerbias_cache('mit1003', stimuli, common.mit1003_centerbias_model(stimuli, scanpaths))
     train_idx, val_idx, _ = common.split_indices(len(stimuli), args.fold)
-    train_items = [items[n] for n in train_idx if n in items]
-    val_items = [items[n] for n in val_idx if n in items]
+    keep = (lambda n: n in items) if args.limit is None else (lambda n: n in items and n < args.limit)
+    train_items = [items[n] for n in train_idx if keep(n)]
+    val_items = [items[n] for n in val_idx if keep(n)]
 
     model = DeepGazeIIIMSDB(pretrained_msdb=True, with_backbone=False).to(device)
     for param in model.parameters():
