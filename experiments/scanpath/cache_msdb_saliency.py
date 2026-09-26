@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repository root: deepgaze_pytorch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common  # noqa: E402
 from deepgaze_pytorch.deepgaze3_msdb import DeepGazeIIIMSDB  # noqa: E402

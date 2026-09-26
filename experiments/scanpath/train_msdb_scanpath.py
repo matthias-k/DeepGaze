@@ -12,6 +12,7 @@ from pathlib import Path
 
 import torch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repository root: deepgaze_pytorch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common  # noqa: E402
 from cache_msdb_saliency import saliency_loader  # noqa: E402
@@ -58,7 +59,7 @@ def main():
     device = torch.device(args.device)
     stimuli, scanpaths = common.load_mit1003()
     items = common.items_by_index(stimuli, scanpaths)
-    load_centerbias = common.centerbias_cache('mit1003', stimuli, common.mit1003_centerbias_model(stimuli, scanpaths))
+    load_centerbias = common.centerbias_cache('mit1003', stimuli, lambda: common.mit1003_centerbias_model(stimuli, scanpaths))
     train_idx, val_idx, _ = common.split_indices(len(stimuli), args.fold)
     keep = (lambda n: n in items) if args.limit is None else (lambda n: n in items and n < args.limit)
     train_items = [items[n] for n in train_idx if keep(n)]

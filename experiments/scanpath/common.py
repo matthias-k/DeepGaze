@@ -13,7 +13,6 @@ import torch
 from PIL import Image
 from boltons.iterutils import chunked
 from pysaliency.baseline_utils import CrossvalidatedBaselineModel
-from tqdm import tqdm
 
 from deepgaze_pytorch.custom_data import fit_centerbias
 from deepgaze_pytorch.scanpath_training import group_by_image
@@ -85,7 +84,7 @@ def load_osie():
 
 # ---- splits ------------------------------------------------------------------------------------
 
-def crossval_folds(n_stimuli, crossval_folds=CROSSVAL_FOLDS):
+def fold_indices(n_stimuli, crossval_folds=CROSSVAL_FOLDS):
     """Stimulus indices of each fold, exactly as pysaliency.filter_datasets creates them
     (random=True: shuffled with RandomState(42), then chunked)."""
     indices = list(range(n_stimuli))
@@ -98,7 +97,7 @@ def split_indices(n_stimuli, fold_no, crossval_folds=CROSSVAL_FOLDS):
     """train / val / test stimulus indices of fold ``fold_no`` with pysaliency's defaults
     (``val_folds=1, test_folds=1``: test fold ``fold_no``, validation fold ``fold_no - 1``), as used
     by train_deepgaze3.ipynb for the released DeepGaze III."""
-    folds = crossval_folds(n_stimuli, crossval_folds)
+    folds = fold_indices(n_stimuli, crossval_folds)
     test = fold_no
     val = (fold_no - 1) % crossval_folds
     train = [i for f in range(crossval_folds) if f not in (test, val) for i in folds[f]]
@@ -107,16 +106,25 @@ def split_indices(n_stimuli, fold_no, crossval_folds=CROSSVAL_FOLDS):
 
 # ---- center bias -------------------------------------------------------------------------------
 
-def centerbias_cache(name, stimuli, model):
-    """Cache of the center-bias log densities (float32, one file per image) -> loader."""
+def centerbias_cache(name, stimuli, build_model):
+    """Loader of the center-bias log densities, cached on disk (float32, one file per image).
+
+    Missing images are computed on first use with the model from ``build_model()`` (built only
+    then, fitting can take minutes); ``prepare_centerbias.py`` fills the cache in advance.
+    """
     directory = CACHE / 'centerbias' / name
     directory.mkdir(parents=True, exist_ok=True)
-    missing = [n for n in range(len(stimuli)) if not (directory / f'{n}.npy').exists()]
-    for n in tqdm(missing, desc=f'center bias {name}'):
-        np.save(directory / f'{n}.npy', model.log_density(stimuli.stimuli[n]).astype(np.float32))
+    model = []
 
     def load(n, device='cpu'):
-        return torch.from_numpy(np.load(directory / f'{n}.npy'))[None].to(device)
+        path = directory / f'{n}.npy'
+        if not path.exists():
+            if not model:
+                model.append(build_model())
+            tmp = directory / f'{n}.tmp.npy'
+            np.save(tmp, model[0].log_density(stimuli.stimuli[n]).astype(np.float32))
+            tmp.rename(path)
+        return torch.from_numpy(np.load(path))[None].to(device)
     return load
 
 

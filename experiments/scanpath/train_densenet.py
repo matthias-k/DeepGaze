@@ -27,6 +27,7 @@ import torch
 import torch.nn as nn
 from pysaliency.baseline_utils import BaselineModel
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repository root: deepgaze_pytorch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common  # noqa: E402
 from deepgaze_pytorch.deepgaze3 import build_saliency_network, build_scanpath_network  # noqa: E402
@@ -110,8 +111,8 @@ def stage_salicon(args, device):
     centerbias = torch.from_numpy(centerbias_model.log_density(train_stimuli.stimuli[0]).astype(np.float32))[None].to(device)
 
     model = build_model(scanpath=False, downsample=1.5).to(device)
-    train_items = group_by_image(train_stimuli, train_fixations, common.INCLUDED_FIXATIONS, with_history=False)
-    val_items = group_by_image(val_stimuli, val_fixations, common.INCLUDED_FIXATIONS, with_history=False)
+    train_items = limited(group_by_image(train_stimuli, train_fixations, common.INCLUDED_FIXATIONS, with_history=False), args.limit)
+    val_items = limited(group_by_image(val_stimuli, val_fixations, common.INCLUDED_FIXATIONS, with_history=False), args.limit)
     train(DeepGazeIIITask(model, common.image_loader(train_stimuli, device), lambda n: centerbias),
           train_items, val_items, [p for p in model.parameters() if p.requires_grad], str(run_dir('salicon')),
           lr=1e-3, min_lr=args.min_lr, milestones=args.milestones or SALICON_MILESTONES, max_epochs=args.max_epochs,
@@ -120,21 +121,25 @@ def stage_salicon(args, device):
           load_state_fn=lambda state: load_trainable(model, state))
 
 
-def mit1003_items(variant, fold, device, with_history):
+def limited(items, limit):
+    return items if limit is None else [item for item in items if item.index < limit]
+
+
+def mit1003_items(variant, fold, device, with_history, limit=None):
     stimuli, scanpaths = common.load_mit1003_stretched() if variant == 'stretched' else common.load_mit1003()
     cache_name = 'mit1003_stretched' if variant == 'stretched' else 'mit1003'  # 'mit1003' is shared with evaluate.py
-    load_centerbias = common.centerbias_cache(cache_name, stimuli, common.mit1003_centerbias_model(stimuli, scanpaths))
+    load_centerbias = common.centerbias_cache(cache_name, stimuli, lambda: common.mit1003_centerbias_model(stimuli, scanpaths))
     items = {item.index: item for item in group_by_image(stimuli, scanpaths[scanpaths.lengths > 0] if not with_history else scanpaths,
                                                           common.INCLUDED_FIXATIONS, with_history=with_history)}
     train_idx, val_idx, _ = common.split_indices(len(stimuli), fold)
     load_image = common.image_loader(stimuli, device)
-    return ([items[n] for n in train_idx if n in items], [items[n] for n in val_idx if n in items],
+    return (limited([items[n] for n in train_idx if n in items], limit), limited([items[n] for n in val_idx if n in items], limit),
             load_image, lambda n: load_centerbias(n, device))
 
 
 def stage_spatial(args, device):
     # train_deepgaze3.ipynb trains the spatial model on the fixations after the initial one
-    train_items, val_items, load_image, load_centerbias = mit1003_items(args.variant, args.fold, device, with_history=False)
+    train_items, val_items, load_image, load_centerbias = mit1003_items(args.variant, args.fold, device, with_history=False, limit=args.limit)
     model = build_model(scanpath=False, downsample=2).to(device)
     load_trainable(model, best_checkpoint(run_dir('salicon')))
     train(DeepGazeIIITask(model, load_image, load_centerbias), train_items, val_items,
@@ -144,7 +149,7 @@ def stage_spatial(args, device):
 
 
 def stage_scanpath(args, device):
-    train_items, val_items, load_image, load_centerbias = mit1003_items(args.variant, args.fold, device, with_history=True)
+    train_items, val_items, load_image, load_centerbias = mit1003_items(args.variant, args.fold, device, with_history=True, limit=args.limit)
     base = run_dir(args.variant, f'fold{args.fold}')
     model = build_model(scanpath=True, downsample=2).to(device)
     task = DeepGazeIIITask(model, load_image, load_centerbias)
@@ -179,10 +184,12 @@ def main():
     parser.add_argument('--min-lr', type=float, default=1e-7)
     parser.add_argument('--patience', type=int, default=2)
     parser.add_argument('--max-epochs', type=int, default=100)
+    parser.add_argument('--device', default='cuda')
+    parser.add_argument('--limit', type=int, help='only images with index < N (smoke test)')
     args = parser.parse_args()
     if args.stage != 'salicon' and (args.variant is None or args.fold is None):
         parser.error("--variant and --fold are required for the MIT1003 stages")
-    device = torch.device('cuda')
+    device = torch.device(args.device)
     {'salicon': stage_salicon, 'spatial': stage_spatial, 'scanpath': stage_scanpath}[args.stage](args, device)
 
 

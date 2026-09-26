@@ -34,6 +34,7 @@ import torch
 import torch.nn.functional as F
 from scipy import stats
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repository root: deepgaze_pytorch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common  # noqa: E402
 from cache_msdb_saliency import saliency_loader  # noqa: E402
@@ -68,12 +69,12 @@ def load_dataset(name):
         items = common.items_by_index(stimuli, scanpaths)
         _, _, test_idx = common.split_indices(len(stimuli), fold)
         items = [items[n] for n in test_idx if n in items]
-        load_centerbias = common.centerbias_cache('mit1003', stimuli, common.mit1003_centerbias_model(stimuli, scanpaths))
+        load_centerbias = common.centerbias_cache('mit1003', stimuli, lambda: common.mit1003_centerbias_model(stimuli, scanpaths))
         return stimuli, items, load_centerbias, common.MIT1003_PIXEL_PER_DVA, MSDBDataset.MIT1003, 'mit1003'
     if name == 'osie':
         stimuli, scanpaths = common.load_osie()
         items = list(common.items_by_index(stimuli, scanpaths).values())
-        load_centerbias = common.centerbias_cache('osie', stimuli, common.osie_centerbias_model(stimuli, scanpaths))
+        load_centerbias = common.centerbias_cache('osie', stimuli, lambda: common.osie_centerbias_model(stimuli, scanpaths))
         return stimuli, items, load_centerbias, common.OSIE_PIXEL_PER_DVA, None, 'osie'
     raise ValueError(name)
 

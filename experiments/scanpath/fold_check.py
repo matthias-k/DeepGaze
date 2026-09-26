@@ -13,6 +13,7 @@ Requires ``cache_msdb_saliency.py mit1003``. Writes runs/fold_check.json.
 
     python experiments/scanpath/fold_check.py
 """
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -20,6 +21,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repository root: deepgaze_pytorch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common  # noqa: E402
 from cache_msdb_saliency import saliency_loader  # noqa: E402
@@ -49,11 +51,16 @@ def component_lls(task, items, device, chunk_size=48):
 
 
 def main():
-    device = torch.device('cuda')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--device', default='cuda')
+    parser.add_argument('--limit', type=int, help='only images with index < N (smoke test)')
+    args = parser.parse_args()
+    device = torch.device(args.device)
     stimuli, scanpaths = common.load_mit1003()
-    items = list(common.items_by_index(stimuli, scanpaths).values())
-    load_centerbias = common.centerbias_cache('mit1003', stimuli, common.mit1003_centerbias_model(stimuli, scanpaths))
-    folds = common.crossval_folds(len(stimuli))
+    items = [item for item in common.items_by_index(stimuli, scanpaths).values()
+             if args.limit is None or item.index < args.limit]
+    load_centerbias = common.centerbias_cache('mit1003', stimuli, lambda: common.mit1003_centerbias_model(stimuli, scanpaths))
+    folds = common.fold_indices(len(stimuli))
     fold_of = {n: f for f, members in enumerate(folds) for n in members}
 
     dg3 = DeepGazeIII(pretrained=True).to(device).eval()
@@ -73,17 +80,22 @@ def main():
     relative = np.zeros((n_folds, n_folds))
     for f in range(n_folds):
         members = [n for n in dg3_lls if fold_of[n] == f]
+        if not members:
+            relative[:, f] = np.nan
+            continue
         values = np.stack([dg3_lls[n] for n in members])  # images x components
         relative[:, f] = (values - values.mean(axis=1, keepdims=True)).mean(axis=0)
     # MSDB relative to the component that held out each fold (component f on fold f)
     msdb_vs_heldout = []
     for f in range(n_folds):
         diff = np.array([msdb_lls[n] - dg3_lls[n][f] for n in dg3_lls if fold_of[n] == f])
+        if len(diff) < 2:
+            continue
         msdb_vs_heldout.append({'fold': f, 'mean': float(diff.mean()), 'sem': float(diff.std(ddof=1) / np.sqrt(len(diff))),
                                 'images': len(diff)})
     result = {
         'dg3_component_minus_mean_by_fold': relative.round(4).tolist(),
-        'dg3_worst_fold_per_component': relative.argmin(axis=1).tolist(),
+        'dg3_worst_fold_per_component': np.nanargmin(relative, axis=1).tolist(),
         'msdb_minus_heldout_dg3_component_by_fold': msdb_vs_heldout,
     }
     common.RUNS.mkdir(parents=True, exist_ok=True)
