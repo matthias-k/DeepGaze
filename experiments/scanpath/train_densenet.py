@@ -14,7 +14,8 @@ image form one batch, see deepgaze_pytorch/scanpath_training.py):
 Variants: ``stretched`` (as the notebook) and ``original`` (aspect ratios kept; the long side of
 the MIT1003 images already is 1024 pixels). SALICON uses the notebook's epoch milestones; the MIT1003
 stages lower the learning rate when the validation fold stops improving, so both variants are trained
-to convergence by the same criterion.
+to convergence by the same criterion. ``--seed`` fixes the initialization of new layers and the order of
+the images, so with the same seed both variants start the scanpath stage from the same initialization.
 """
 import argparse
 import sys
@@ -121,7 +122,7 @@ def stage_salicon(args, device):
           train_items, val_items, [p for p in model.parameters() if p.requires_grad], str(run_dir('salicon')),
           lr=1e-3, min_lr=args.min_lr, milestones=args.milestones or SALICON_MILESTONES, max_epochs=args.max_epochs,
           val_task=DeepGazeIIITask(model, common.image_loader(val_stimuli, device), lambda n: centerbias),
-          device=device, log=log, state_dict_fn=lambda: trainable_state(model),
+          seed=args.seed, device=device, log=log, state_dict_fn=lambda: trainable_state(model),
           load_state_fn=lambda state: load_trainable(model, state))
 
 
@@ -148,8 +149,9 @@ def stage_spatial(args, device):
     load_trainable(model, best_checkpoint(run_dir('salicon')))
     train(DeepGazeIIITask(model, load_image, load_centerbias), train_items, val_items,
           [p for p in model.parameters() if p.requires_grad], str(run_dir(args.variant, f'fold{args.fold}', 'spatial')),
-          lr=1e-3, min_lr=args.min_lr, patience=args.patience, max_epochs=args.max_epochs, device=device, log=log,
-          state_dict_fn=lambda: trainable_state(model), load_state_fn=lambda state: load_trainable(model, state))
+          lr=1e-3, min_lr=args.min_lr, patience=args.patience, max_epochs=args.max_epochs, seed=args.seed,
+          device=device, log=log, state_dict_fn=lambda: trainable_state(model),
+          load_state_fn=lambda state: load_trainable(model, state))
 
 
 def stage_scanpath(args, device):
@@ -157,7 +159,8 @@ def stage_scanpath(args, device):
     base = run_dir(args.variant, f'fold{args.fold}')
     model = build_model(scanpath=True, downsample=2).to(device)
     task = DeepGazeIIITask(model, load_image, load_centerbias)
-    common_kwargs = dict(min_lr=args.min_lr, patience=args.patience, max_epochs=args.max_epochs, device=device, log=log,
+    common_kwargs = dict(min_lr=args.min_lr, patience=args.patience, max_epochs=args.max_epochs, seed=args.seed,
+                         device=device, log=log,
                          state_dict_fn=lambda: trainable_state(model), load_state_fn=lambda state: load_trainable(model, state))
 
     # 1) first saliency layers frozen, scanpath network trained from scratch (notebook: lr 1e-3)
@@ -189,12 +192,14 @@ def main():
     parser.add_argument('--patience', type=int, default=2)
     parser.add_argument('--max-epochs', type=int, default=100)
     parser.add_argument('--salicon-val-images', type=int, help='SALICON: validate on this many (fixed) images')
+    parser.add_argument('--seed', type=int, default=0, help='initialization of new layers and order of the images')
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--limit', type=int, help='only images with index < N (smoke test)')
     args = parser.parse_args()
     if args.stage != 'salicon' and (args.variant is None or args.fold is None):
         parser.error("--variant and --fold are required for the MIT1003 stages")
     device = torch.device(args.device)
+    torch.manual_seed(args.seed)
     {'salicon': stage_salicon, 'spatial': stage_spatial, 'scanpath': stage_scanpath}[args.stage](args, device)
 
 
