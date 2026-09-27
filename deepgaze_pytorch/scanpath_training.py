@@ -113,9 +113,8 @@ def run_epoch(task, items: Sequence[ImageFixations], optimizer=None, chunk_size:
             context = task.image_context(item)
             lls = []
             if getattr(task, 'history_independent', False):
-                # one prediction for all fixations of the image
+                # one prediction for all fixations of the image (normalized once, read at every fixation)
                 pre = task.pre_log_density(context, item.x_hist[:1].to(device), item.y_hist[:1].to(device))
-                pre = [p.expand(n, -1, -1) for p in pre] if isinstance(pre, (list, tuple)) else pre.expand(n, -1, -1)
                 ll = _log_density_at(pre, item.image_size, item.ys.to(device), item.xs.to(device))
                 if training:
                     (-ll.mean()).backward()

@@ -41,6 +41,10 @@ def test_log_density_at_equals_upsample_and_normalize(image_size, pre_size):
     reference = _reference_full(pre, image_size)
     assert torch.allclose(full_log_density(pre, image_size), reference)
     assert torch.allclose(log_density_at(pre, image_size, ys, xs), reference[torch.arange(3), ys, xs])
+    # a single map is read at all positions
+    assert torch.allclose(log_density_at(pre[:1], image_size, ys, xs), reference[0, ys, xs])
+    with pytest.raises(ValueError):
+        log_density_at(pre[:2], image_size, ys, xs)
 
 
 def _histories(batch, image_size, seed=0, missing=True):

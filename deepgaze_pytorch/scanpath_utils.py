@@ -40,8 +40,11 @@ def log_density_at(pre, image_size, ys, xs):
     """Normalized full-resolution log density at integer pixel positions.
 
     Equivalent to upsampling ``pre`` (B, h, w) to ``image_size`` with nearest-neighbour
-    interpolation, normalizing each map and reading ``[b, ys[b], xs[b]]``.
+    interpolation, normalizing each map and reading ``[b, ys[b], xs[b]]``. A single map (B = 1) is
+    read at all positions.
     """
+    if pre.shape[0] not in (1, len(ys)):
+        raise ValueError(f"{pre.shape[0]} maps for {len(ys)} positions")
     iy, ix, log_cy, log_cx = _upsampling_log_counts(pre, image_size)
     log_z = torch.logsumexp(pre + log_cy[:, None] + log_cx[None, :], dim=(-2, -1))
     batch = torch.arange(pre.shape[0], device=pre.device)
