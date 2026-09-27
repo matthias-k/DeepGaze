@@ -10,7 +10,7 @@ Note: Some DeepGaze variants have their own repositories:
 
 ```bash
 pip install .              # DeepGaze I, IIE, III
-pip install .[msdb]        # + CLIP, needed for DeepGaze MSDB
+pip install .[msdb]        # + CLIP, needed for DeepGaze MSDB and DeepGaze III on DeepGaze MSDB
 pip install .[training]    # + dependencies of the training / adaptation code
 ```
 
@@ -192,6 +192,41 @@ axs[1].set_axis_off()
 The figure shows on the left the viewed image with the previous scanpath fixations superimposed and a yellow dot indicating the location of the current fixtion. On the right, the predicted log density for the next fixation location is displayed, again together with the previous scanpath:
 
 ![Plot with viewed image and predicted log density](figures/deepgaze3_prediction.png)
+
+### DeepGaze III on DeepGaze MSDB (Scanpath Model)
+
+`DeepGazeIIIMSDB` puts the scanpath part of DeepGaze III on top of the spatial priority map of DeepGaze MSDB. It is an addition of this fork, not one of the published DeepGaze models. It differs from DeepGaze III in three ways:
+
+* the priority map comes from DeepGaze MSDB (CLIP and DINOv2 features at several scales) instead of DeepGaze III's DenseNet-201 readout;
+* the previous fixations are encoded in degrees of visual angle, so the model takes `pixel_per_dva` and `dataset` like DeepGaze MSDB;
+* the fixation selection is residual and starts at zero, so without training the model reproduces DeepGaze MSDB exactly.
+
+The released scanpath part was trained on MIT1003 with DeepGaze MSDB frozen, on folds 1-8 of the 10-fold split of the released DeepGaze III (fold 9 for validation, fold 0 held out). Continuing the DeepGaze III example above:
+
+```python
+from deepgaze_pytorch import MSDBDataset
+
+model = deepgaze_pytorch.DeepGazeIIIMSDB().to(DEVICE)  # DeepGaze MSDB weights + the trained scanpath part
+
+# previous fixations, most recent first (model.included_fixations = [-1, -2, -3, -4]);
+# NaN for the missing ones at the beginning of a scanpath
+x_hist_tensor = torch.tensor([fixation_history_x[model.included_fixations]], dtype=torch.float32).to(DEVICE)
+y_hist_tensor = torch.tensor([fixation_history_y[model.included_fixations]], dtype=torch.float32).to(DEVICE)
+
+# log density of the next fixation, (1, height, width); dataset=None for datasets MSDB was not trained on
+log_density_prediction = model(image_tensor, centerbias_tensor, x_hist_tensor, y_hist_tensor,
+                               pixel_per_dva=35.0, dataset=MSDBDataset.MIT1003)
+```
+
+Results on data that none of the compared models was trained on: information gain in bit per fixation over the center bias, AUC and NSS, all averaged per image. The scores cover all fixations except the first of each scanpath, conditioned on the true previous fixations:
+
+| Model | MIT1003 fold 0: IG | AUC | NSS | OSIE: IG | AUC | NSS |
+|---|---|---|---|---|---|---|
+| DeepGaze MSDB (no fixation history) | 1.24 | 0.902 | 2.76 | 2.26 | 0.936 | 3.82 |
+| DeepGaze III | 1.47 | 0.913 | 3.07 | 2.21 | 0.932 | 3.46 |
+| DeepGaze III on DeepGaze MSDB | **1.70** | **0.923** | **3.46** | **2.67** | **0.948** | **4.55** |
+
+On MIT1003 fold 0, the DeepGaze III row is its mixture component that did not see this fold; on OSIE it is the full released model. The gain over DeepGaze III is +0.24 bit per fixation on MIT1003 fold 0 (95% CI over images: 0.20 to 0.27) and +0.46 bit on OSIE (0.45 to 0.48). The evaluation protocol, all comparisons and the scripts to reproduce them are in [experiments/scanpath](experiments/scanpath/README.md).
 
 
 
