@@ -12,6 +12,7 @@ Two choices differ from DeepGaze III:
   between datasets presented at different resolutions, as the MSDB spatial pathway does.
 """
 import math
+import os
 from typing import Optional
 
 import torch
@@ -36,6 +37,9 @@ from .deepgazemsdb import (
 from .scanpath_utils import encode_history_dva, full_log_density
 
 _HEAD_PREFIXES = ('scanpath_network.', 'fixation_selection_network.')
+# scanpath part trained on MIT1003 on top of the frozen released MSDB: folds 1-8 of pysaliency's
+# 10-fold split, fold 9 for validation, fold 0 held out (experiments/scanpath/train_msdb_scanpath.py)
+_HEAD_WEIGHTS = os.path.join(os.path.dirname(__file__), 'weights', 'deepgaze3_msdb_head.pth')
 
 
 class DeepGazeIIIMSDB(nn.Module):
@@ -43,13 +47,18 @@ class DeepGazeIIIMSDB(nn.Module):
 
     Args:
         pretrained_msdb: load the released DeepGaze MSDB weights for the spatial pathway.
+        pretrained_head: load the scanpath part trained on top of them (see
+            ``experiments/scanpath/README.md``). Without it the fixation selection starts at zero
+            and the model reproduces DeepGaze MSDB.
         with_backbone: build the CLIP + DINOv2 backbone. Without it the model only works on
             precomputed priority maps (``pre_log_density``), which is how it is trained.
     """
     included_fixations = [-1, -2, -3, -4]
 
-    def __init__(self, pretrained_msdb: bool = True, with_backbone: bool = True):
+    def __init__(self, pretrained_msdb: bool = True, pretrained_head: bool = True, with_backbone: bool = True):
         super().__init__()
+        if pretrained_head and not pretrained_msdb:
+            raise ValueError("the pretrained scanpath head was trained on the released MSDB spatial pathway")
         if with_backbone:
             self.features = _MultiScaleBackbone(
                 backbone=_build_backbone(),
@@ -79,10 +88,23 @@ class DeepGazeIIIMSDB(nn.Module):
             not_loaded = [k for k in missing if not k.startswith(_HEAD_PREFIXES + ('features.backbone.',))]
             if unexpected or not_loaded:
                 raise RuntimeError(f"MSDB checkpoint does not match: unexpected {unexpected}, missing {not_loaded}")
+        if pretrained_head:
+            self.load_head(torch.load(_HEAD_WEIGHTS, map_location='cpu', weights_only=True))
 
     def head_parameters(self):
         """Parameters of the scanpath part (the only ones trained on top of a frozen MSDB)."""
         return list(self.scanpath_network.parameters()) + list(self.fixation_selection_network.parameters())
+
+    def head_state_dict(self):
+        """State of the scanpath part (CPU tensors), everything that differs from DeepGaze MSDB."""
+        return {k: v.detach().cpu() for k, v in self.state_dict().items() if k.startswith(_HEAD_PREFIXES)}
+
+    def load_head(self, state):
+        """Load a ``head_state_dict``; the spatial pathway is left as it is."""
+        missing, unexpected = self.load_state_dict(state, strict=False)
+        not_loaded = [k for k in missing if k.startswith(_HEAD_PREFIXES)]
+        if unexpected or not_loaded:
+            raise RuntimeError(f"scanpath head checkpoint does not match: unexpected {unexpected}, missing {not_loaded}")
 
     def saliency(self, image: torch.Tensor, pixel_per_dva: float, dataset: Optional[int] = None) -> torch.Tensor:
         """MSDB priority map at readout resolution, (B, 1, ceil(H/8), ceil(W/8))."""

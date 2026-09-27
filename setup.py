@@ -70,5 +70,5 @@ setup(
         ],
     },
     include_package_data=True,
-    package_data={'deepgaze_pytorch': ['*.yaml']},
+    package_data={'deepgaze_pytorch': ['*.yaml', 'weights/*.pth']},
 )

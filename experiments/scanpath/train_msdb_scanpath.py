@@ -21,18 +21,6 @@ from deepgaze_pytorch.deepgazemsdb import MSDBDataset  # noqa: E402
 from deepgaze_pytorch.scanpath_tasks import MSDBScanpathTask  # noqa: E402
 from deepgaze_pytorch.scanpath_training import bits_relative_to_uniform, train  # noqa: E402
 
-HEAD_PREFIXES = ('scanpath_network.', 'fixation_selection_network.')
-
-
-def head_state(model):
-    return {k: v.detach().cpu() for k, v in model.state_dict().items() if k.startswith(HEAD_PREFIXES)}
-
-
-def load_head(model, state):
-    missing, unexpected = model.load_state_dict(state, strict=False)
-    if unexpected or any(k.startswith(HEAD_PREFIXES) for k in missing):
-        raise RuntimeError(f"head checkpoint does not match: unexpected {unexpected}")
-
 
 def centerbias_lls(items, load_centerbias):
     """Per-fixation LL of the center bias (bits relative to uniform), the baseline for IG."""
@@ -65,7 +53,7 @@ def main():
     train_items = [items[n] for n in train_idx if keep(n)]
     val_items = [items[n] for n in val_idx if keep(n)]
 
-    model = DeepGazeIIIMSDB(pretrained_msdb=True, with_backbone=False).to(device)
+    model = DeepGazeIIIMSDB(pretrained_msdb=True, pretrained_head=False, with_backbone=False).to(device)
     for param in model.parameters():
         param.requires_grad = False
     head = model.head_parameters()
@@ -79,7 +67,7 @@ def main():
     train(task, train_items, val_items, head, str(directory), lr=args.lr,
           val_baseline=centerbias_lls(val_items, load_centerbias), min_lr=args.min_lr, patience=args.patience,
           max_epochs=args.max_epochs, chunk_size=args.chunk_size, device=device,
-          state_dict_fn=lambda: head_state(model), load_state_fn=lambda state: load_head(model, state),
+          state_dict_fn=model.head_state_dict, load_state_fn=model.load_head,
           log=lambda line: print(line, flush=True))
 
 

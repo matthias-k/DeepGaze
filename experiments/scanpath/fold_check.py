@@ -69,7 +69,8 @@ def main():
     del dg3
     torch.cuda.empty_cache()
 
-    msdb = DeepGazeIIIMSDB(pretrained_msdb=True, with_backbone=False).to(device).eval()  # untrained head = MSDB
+    # without the trained scanpath head the model reproduces DeepGaze MSDB
+    msdb = DeepGazeIIIMSDB(pretrained_msdb=True, pretrained_head=False, with_backbone=False).to(device).eval()
     msdb_task = MSDBScanpathTask(msdb, lambda n: load_centerbias(n, device), common.MIT1003_PIXEL_PER_DVA,
                                  MSDBDataset.MIT1003, saliency_maps=saliency_loader('mit1003', device))
     with torch.no_grad():

@@ -51,7 +51,7 @@ def main():
     directory.mkdir(parents=True, exist_ok=True)
 
     device = torch.device(args.device)
-    model = DeepGazeIIIMSDB(pretrained_msdb=True, with_backbone=True).to(device).eval()
+    model = DeepGazeIIIMSDB(pretrained_msdb=True, pretrained_head=False, with_backbone=True).to(device).eval()
     load_image = common.image_loader(stimuli, device=device)
     todo = [n for n in range(len(stimuli) if args.limit is None else args.limit) if not (directory / f'{n}.npy').exists()]
     print(f"{args.dataset}: {len(todo)} of {len(stimuli)} images to compute", flush=True)

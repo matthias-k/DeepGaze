@@ -8,7 +8,9 @@ Datasets:
 Models:
   centerbias        the dataset's center bias (IG baseline)
   msdb_spatial      DeepGaze MSDB (no history)
-  dg3msdb           DeepGaze III scanpath part trained on MSDB (runs/<run>/fold<k>/best.pth)
+  dg3msdb           DeepGaze III scanpath part on MSDB with the released head (deepgaze_pytorch/weights);
+                    with ``--run R`` the head of a training run (runs/R/best.pth), whose results are
+                    stored as ``dg3msdb_R`` (slashes replaced by underscores)
   dg3_component<k>  one component (cross-validation fold) of the released DeepGaze III
   dg3_mixture       the released DeepGaze III (all 10 folds; not held out on any MIT1003 fold)
   <dg3 model>_native  the same DeepGaze III model at the dataset's own resolution (no rescaling), to
@@ -16,9 +18,9 @@ Models:
   densenet_<variant>  DeepGaze III retrained by train_densenet.py on ``stretched`` or ``original``
                     MIT1003 (on mit1003_fold<k> the fold-k model, on OSIE the ``--densenet-fold`` model)
 
-DeepGaze III models always see images at their training resolution (35 pixels per degree); on OSIE
-(24 pixels per degree) images are upscaled for them and their predictions mapped back to the original
-pixels. Every model gets the same center-bias input and is scored on the same fixations: all fixations
+Unless ``_native``, DeepGaze III models see images at their training resolution (35 pixels per degree);
+on OSIE (24 pixels per degree) images are upscaled for them and their predictions mapped back to the
+original pixels. Every model gets the same center-bias input and is scored on the same fixations: all fixations
 except the first of each scanpath, conditioned on the true previous fixations.
 
     python experiments/scanpath/evaluate.py osie --models centerbias msdb_spatial dg3msdb dg3_component0
@@ -40,7 +42,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repository root:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common  # noqa: E402
 from cache_msdb_saliency import saliency_loader  # noqa: E402
-from train_msdb_scanpath import load_head  # noqa: E402
 from deepgaze_pytorch.deepgaze3_msdb import DeepGazeIIIMSDB  # noqa: E402
 from deepgaze_pytorch.deepgazemsdb import MSDBDataset  # noqa: E402
 from deepgaze_pytorch.scanpath_tasks import DeepGazeIIITask, MSDBScanpathTask, RescaledTask  # noqa: E402
@@ -114,9 +115,11 @@ def build_task(model_name, stimuli, load_centerbias, pixel_per_dva, msdb_dataset
     if model_name == 'centerbias':
         return CenterBiasTask(lambda n: load_centerbias(n, device))
     if model_name in ('msdb_spatial', 'dg3msdb'):
-        model = DeepGazeIIIMSDB(pretrained_msdb=True, with_backbone=False).to(device).eval()
-        if model_name == 'dg3msdb':
-            load_head(model, torch.load(common.RUNS / run / 'best.pth', map_location=device))
+        released_head = model_name == 'dg3msdb' and run is None
+        model = DeepGazeIIIMSDB(pretrained_msdb=True, pretrained_head=released_head, with_backbone=False)
+        if model_name == 'dg3msdb' and run is not None:
+            model.load_head(torch.load(common.RUNS / run / 'best.pth', map_location='cpu', weights_only=True))
+        model = model.to(device).eval()
         return MSDBScanpathTask(model, lambda n: load_centerbias(n, device), pixel_per_dva, msdb_dataset,
                                 saliency_maps=saliency_loader(cache_name, device))
     native = model_name.endswith('_native')
@@ -137,8 +140,13 @@ def build_task(model_name, stimuli, load_centerbias, pixel_per_dva, msdb_dataset
     raise ValueError(model_name)
 
 
-def results_path(dataset, model_name):
-    return common.RUNS / 'eval' / dataset / f'{model_name}.npz'
+def results_name(model_name, run):
+    """Name under which the results are stored; a training run of dg3msdb gets its own name."""
+    return f"{model_name}_{run.replace('/', '_')}" if model_name == 'dg3msdb' and run is not None else model_name
+
+
+def results_path(dataset, name):
+    return common.RUNS / 'eval' / dataset / f'{name}.npz'
 
 
 def save_results(path, results):
@@ -191,7 +199,8 @@ def main():
     parser.add_argument('dataset')
     parser.add_argument('--models', nargs='*', default=[])
     parser.add_argument('--compare', nargs=2, metavar=('A', 'B'))
-    parser.add_argument('--run', default='msdb_scanpath/fold0', help='training run of dg3msdb')
+    parser.add_argument('--run', help='evaluate dg3msdb with the head of this training run (e.g. msdb_scanpath/fold0) '
+                                      'instead of the released one')
     parser.add_argument('--densenet-fold', type=int, help='fold of the densenet_* models (default: the test fold, 0 on OSIE)')
     parser.add_argument('--chunk-size', type=int, default=16)
     parser.add_argument('--device', default='cuda')
@@ -210,8 +219,9 @@ def main():
             task = build_task(model_name, stimuli, load_centerbias, ppd, msdb_dataset, cache_name, device, args.run,
                               densenet_fold)
             results = evaluate(task, items, chunk_size=args.chunk_size, device=device)
-            save_results(results_path(args.dataset, model_name), results)
-            print(json.dumps({'dataset': args.dataset, 'model': model_name, **summary(results)}), flush=True)
+            name = results_name(model_name, args.run)
+            save_results(results_path(args.dataset, name), results)
+            print(json.dumps({'dataset': args.dataset, 'model': name, **summary(results)}), flush=True)
             del task
             torch.cuda.empty_cache()
 

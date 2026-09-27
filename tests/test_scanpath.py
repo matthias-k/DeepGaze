@@ -80,7 +80,7 @@ def test_encode_history_dva_uses_cell_centres_and_degrees():
 
 def _msdb_model(seed=0):
     torch.manual_seed(seed)
-    model = DeepGazeIIIMSDB(pretrained_msdb=False, with_backbone=False)
+    model = DeepGazeIIIMSDB(pretrained_msdb=False, pretrained_head=False, with_backbone=False)
     with torch.no_grad():  # non-trivial per-dataset parameters
         model.finalizer.gauss.dataset_sigmas.copy_(torch.tensor([0.74, 0.94, 0.93, 0.36, 0.87]))
         model.finalizer.dataset_center_bias_weights.copy_(torch.tensor([0.5, 0.66, 0.58, 0.58, 0.55]))
@@ -109,6 +109,22 @@ def test_untrained_msdb_scanpath_model_reproduces_msdb(dataset):
         pre = model.pre_log_density(saliency, centerbias, x_hist, y_hist, pixel_per_dva=24.0, dataset=dataset)
         reference = _msdb_spatial_reference(model, saliency, centerbias, 4, 24.0, dataset)
     assert torch.allclose(full_log_density(pre, image_size), reference, atol=1e-5)
+
+
+def test_released_scanpath_head_matches_the_model():
+    from deepgaze_pytorch.deepgaze3_msdb import _HEAD_WEIGHTS
+    model = DeepGazeIIIMSDB(pretrained_msdb=False, pretrained_head=False, with_backbone=False)
+    state = torch.load(_HEAD_WEIGHTS, map_location='cpu', weights_only=True)
+    assert set(state) == set(model.head_state_dict())
+    model.load_head(state)
+    assert model.fixation_selection_network.conv2.weight.abs().sum() > 0  # trained, not the zero initialization
+    with pytest.raises(RuntimeError):
+        model.load_head({k: v for k, v in state.items() if not k.startswith('scanpath_network.')})
+
+
+def test_pretrained_head_requires_the_pretrained_spatial_pathway():
+    with pytest.raises(ValueError):
+        DeepGazeIIIMSDB(pretrained_msdb=False, pretrained_head=True, with_backbone=False)
 
 
 def test_batched_gaussian_filter_equals_per_item_filter():
