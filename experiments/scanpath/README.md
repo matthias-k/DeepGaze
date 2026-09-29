@@ -145,3 +145,30 @@ python experiments/scanpath/train_densenet.py scanpath --variant original --fold
 python experiments/scanpath/evaluate.py mit1003_fold0 --models densenet_original densenet_stretched
 python experiments/scanpath/evaluate.py mit1003_fold0 --compare densenet_original densenet_stretched
 ```
+
+### Results: stretched vs. original MIT1003
+
+The runs used a shortened SALICON pretraining (`--milestones 6 10 --max-epochs 12 --salicon-val-images 1000`,
+best epoch 5, shared by both variants). The MIT1003 stages ran with `--min-lr 1e-6 --seed 0`, so with the
+same seed both variants start the scanpath part from the same initialization. Both models are scored on
+the held-out, unstretched test folds with the protocol above. The table gives paired differences, the
+model trained on original images minus the model trained on stretched ones:
+
+| Test data | IG (95% CI) | AUC | NSS | Images with higher IG |
+|---|---|---|---|---|
+| MIT1003 fold 0 | +0.017 (0.005 to 0.030) | +0.0004 (-0.0002 to 0.0010) | +0.047 | 61 of 101 |
+| MIT1003 fold 1 | +0.026 (0.013 to 0.039) | +0.0011 | +0.055 | 68 of 101 |
+| MIT1003 fold 2 | +0.030 (0.013 to 0.048) | +0.0008 | +0.061 | 54 of 101 |
+| MIT1003 folds 0-2 | **+0.024 (0.016 to 0.033)** | +0.0008 (0.0004 to 0.0012) | +0.055 (0.036 to 0.074) | 183 of 303 |
+| OSIE (fold 0 models) | +0.061 (0.055 to 0.068) | +0.0016 | +0.16 | 530 of 700 |
+
+- **Significance.** On the three MIT1003 folds pooled, p = 5e-8 (t-test) and 1e-6 (Wilcoxon).
+  Training without stretching is better on every test fold. The effect is small but consistent.
+- **Reproduction.** The stretched variant reproduces the released DeepGaze III closely. On MIT1003
+  fold 0 its IG is 1.439, against 1.466 for the released component 0. On OSIE it is 2.187, against
+  2.179.
+- **What the intervals cover.** The confidence intervals cover the variation over images, not between
+  training runs. The three folds, each a separate pair of training runs with the same sign, bound
+  the latter only indirectly.
+- **DeepGaze III on DeepGaze MSDB.** Its scanpath part is trained on the original, unstretched images
+  (`train_msdb_scanpath.py`), so this fix is already part of that model.
