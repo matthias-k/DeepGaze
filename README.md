@@ -195,7 +195,7 @@ The figure shows on the left the viewed image with the previous scanpath fixatio
 
 ### DeepGaze III on DeepGaze MSDB (Scanpath Model)
 
-`DeepGazeIIIMSDB` puts the scanpath part of DeepGaze III on top of the spatial priority map of DeepGaze MSDB. It is an addition of this fork, not one of the published DeepGaze models. It differs from DeepGaze III in three ways:
+`DeepGazeIIIMSDB` puts the scanpath part of DeepGaze III on top of the spatial priority map of DeepGaze MSDB. It has not been published in a paper; its training and evaluation are documented in [experiments/scanpath](experiments/scanpath/README.md). It differs from DeepGaze III in three ways:
 
 * the priority map comes from DeepGaze MSDB (CLIP and DINOv2 features at several scales) instead of DeepGaze III's DenseNet-201 readout;
 * the previous fixations are encoded in degrees of visual angle, so the model takes `pixel_per_dva` and `dataset` like DeepGaze MSDB;
