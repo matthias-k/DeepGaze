@@ -133,12 +133,25 @@ class Finalizer(nn.Module):
     def forward(self, readout, centerbias):
         """Applies the finalization steps to the given readout"""
 
-        downscaled_centerbias = F.interpolate(
+        out = self.combine(readout, self.downscale_centerbias(centerbias))
+
+        out = F.interpolate(out[:, np.newaxis, :, :], size=[centerbias.shape[1], centerbias.shape[2]])[:, 0, :, :]
+
+        # normalize
+        out = out - out.logsumexp(dim=(1, 2), keepdim=True)
+
+        return out
+
+    def downscale_centerbias(self, centerbias):
+        return F.interpolate(
             centerbias.view(centerbias.shape[0], 1, centerbias.shape[1], centerbias.shape[2]),
             scale_factor=1 / self.saliency_map_factor,
             recompute_scale_factor=False,
         )[:, 0, :, :]
 
+    def combine(self, readout, downscaled_centerbias):
+        """Unnormalized log density at the downscaled resolution: blurred readout plus the weighted
+        center bias. ``forward`` upsamples and normalizes it."""
         out = F.interpolate(
             readout,
             size=[downscaled_centerbias.shape[1], downscaled_centerbias.shape[2]]
@@ -151,14 +164,7 @@ class Finalizer(nn.Module):
         out = out[:, 0, :, :]
 
         # add to center bias
-        out = out + self.center_bias_weight * downscaled_centerbias
-
-        out = F.interpolate(out[:, np.newaxis, :, :], size=[centerbias.shape[1], centerbias.shape[2]])[:, 0, :, :]
-
-        # normalize
-        out = out - out.logsumexp(dim=(1, 2), keepdim=True)
-
-        return out
+        return out + self.center_bias_weight * downscaled_centerbias
 
 
 class DeepGazeII(torch.nn.Module):
@@ -201,9 +207,10 @@ class DeepGazeII(torch.nn.Module):
         return x
 
     def train(self, mode=True):
+        super().train(mode=mode)
+        # the backbone is frozen: keep its BatchNorm layers on their running statistics
         self.features.eval()
-        self.readout_network.train(mode=mode)
-        self.finalizer.train(mode=mode)
+        return self
 
 
 class DeepGazeIII(torch.nn.Module):
@@ -257,12 +264,10 @@ class DeepGazeIII(torch.nn.Module):
         return x
 
     def train(self, mode=True):
+        super().train(mode=mode)
+        # the backbone is frozen: keep its BatchNorm layers on their running statistics
         self.features.eval()
-        self.saliency_network.train(mode=mode)
-        if self.scanpath_network is not None:
-            self.scanpath_network.train(mode=mode)
-        self.fixation_selection_network.train(mode=mode)
-        self.finalizer.train(mode=mode)
+        return self
 
 
 class DeepGazeIIIMixture(torch.nn.Module):
@@ -327,6 +332,12 @@ class DeepGazeIIIMixture(torch.nn.Module):
         prediction = predictions.logsumexp(dim=(1), keepdim=True)
 
         return prediction
+
+    def train(self, mode=True):
+        super().train(mode=mode)
+        # the backbone is frozen: keep its BatchNorm layers on their running statistics
+        self.features.eval()
+        return self
 
 
 class MixtureModel(torch.nn.Module):

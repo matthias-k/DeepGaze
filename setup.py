@@ -46,6 +46,29 @@ setup(
         'torchvision',
         'setuptools',
     ],
+    extras_require={
+        # DeepGaze MSDB backbone (CLIP ResNet50x64; DINOv2 is loaded via torch.hub)
+        'msdb': [
+            'clip @ git+https://github.com/openai/CLIP.git',
+        ],
+        # training / adaptation code (deepgaze_pytorch.training, .data, .metrics, .custom_data)
+        'training': [
+            'ipython',
+            'lmdb',
+            'matplotlib',
+            # pysaliency 0.2.22 (PyPI) uses NumPy 1 APIs: np.string_ when storing datasets, np.trapz in
+            # the ROC / AUC code
+            'numpy<2',
+            'pandas',
+            'pillow',
+            'pysaliency',
+            'pyyaml',
+            'scikit-learn',
+            'scipy',
+            'tensorboard',
+            'tqdm',
+        ],
+    },
     include_package_data=True,
-    package_data={'deepgaze_pytorch': ['*.yaml']},
+    package_data={'deepgaze_pytorch': ['*.yaml', 'weights/*.pth']},
 )

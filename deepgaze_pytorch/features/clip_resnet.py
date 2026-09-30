@@ -2,17 +2,18 @@
 
 import torch.nn as nn
 
-try:
-    import clip
-except ImportError:
-    raise ImportError("clip is required for CLIP feature extractors. Install with: pip install git+https://github.com/openai/CLIP.git")
-
 from .normalizer import CLIP_Normalizer
 
 
 class CLIPResNet50x64(nn.Sequential):
     """CLIP ResNet-50x64 backbone (used by DeepGaze MSDB)."""
     def __init__(self):
+        # imported here so that `import deepgaze_pytorch` works without CLIP for the other models
+        try:
+            import clip
+        except ImportError as e:
+            raise ImportError("clip is required for CLIP feature extractors. Install with: pip install git+https://github.com/openai/CLIP.git") from e
+
         super(CLIPResNet50x64, self).__init__()
         self.clip_model, _ = clip.load("RN50x64")
         self.visual_clip_model = self.clip_model.visual

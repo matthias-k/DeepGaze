@@ -11,16 +11,33 @@ def _general_auc(positives, negatives):
         return general_roc(positives, negatives)[0]
 
 
+def _dense_mask(fixation_mask):
+    if fixation_mask.is_sparse:
+        return fixation_mask.to_dense()
+    return fixation_mask
+
+
+def _match_mask_shape(log_density, dense_mask):
+    # DeepGaze IIE/III mixtures return (B, 1, H, W); without dropping the channel it would
+    # broadcast against the (B, H, W) mask to (B, B, H, W) and mix up images within a batch.
+    if log_density.dim() == dense_mask.dim() + 1 and log_density.shape[1] == 1:
+        log_density = log_density[:, 0]
+    if log_density.shape != dense_mask.shape:
+        raise ValueError(
+            f"log density shape {tuple(log_density.shape)} does not match "
+            f"fixation mask shape {tuple(dense_mask.shape)}"
+        )
+    return log_density
+
+
 def log_likelihood(log_density, fixation_mask, weights=None):
     #if weights is None:
     #    weights = torch.ones(log_density.shape[0])
 
     weights = len(weights) * weights.view(-1, 1, 1) / weights.sum()
 
-    if isinstance(fixation_mask, torch.sparse.IntTensor):
-        dense_mask = fixation_mask.to_dense()
-    else:
-        dense_mask = fixation_mask
+    dense_mask = _dense_mask(fixation_mask)
+    log_density = _match_mask_shape(log_density, dense_mask)
     fixation_count = dense_mask.sum(dim=(-1, -2), keepdim=True)
     ll = torch.mean(
         weights * torch.sum(log_density * dense_mask, dim=(-1, -2), keepdim=True) / fixation_count
@@ -30,15 +47,14 @@ def log_likelihood(log_density, fixation_mask, weights=None):
 
 def nss(log_density, fixation_mask, weights=None):
     weights = len(weights) * weights.view(-1, 1, 1) / weights.sum()
-    if isinstance(fixation_mask, torch.sparse.IntTensor):
-        dense_mask = fixation_mask.to_dense()
-    else:
-        dense_mask = fixation_mask
+    dense_mask = _dense_mask(fixation_mask)
+    log_density = _match_mask_shape(log_density, dense_mask)
 
     fixation_count = dense_mask.sum(dim=(-1, -2), keepdim=True)
 
     density = torch.exp(log_density)
-    mean, std = torch.std_mean(density, dim=(-1, -2), keepdim=True)
+    # torch.std_mean returns (std, mean)
+    std, mean = torch.std_mean(density, dim=(-1, -2), keepdim=True)
     saliency_map = (density - mean) / std
 
     nss = torch.mean(
@@ -49,21 +65,20 @@ def nss(log_density, fixation_mask, weights=None):
 
 def auc(log_density, fixation_mask, weights=None):
     weights = len(weights) * weights / weights.sum()
+    dense_mask = _dense_mask(fixation_mask)
+    log_density = _match_mask_shape(log_density, dense_mask)
 
-    # TODO: This doesn't account for multiple fixations in the same location!
-    def image_auc(log_density, fixation_mask):
-        if isinstance(fixation_mask, torch.sparse.IntTensor):
-            dense_mask = fixation_mask.to_dense()
-        else:
-            dense_mask = fixation_mask
+    def image_auc(log_density, fixation_counts):
+        log_density = log_density.detach().cpu().numpy().astype(np.float64)
+        fixation_counts = fixation_counts.detach().cpu().numpy().astype(np.int64)
 
-        positives = torch.masked_select(log_density, dense_mask.type(torch.bool)).detach().cpu().numpy().astype(np.float64)
-        negatives = log_density.flatten().detach().cpu().numpy().astype(np.float64)
+        fixated = fixation_counts > 0
+        # every fixation is a positive, also when several fixations fall on the same pixel
+        positives = np.repeat(log_density[fixated], fixation_counts[fixated])
+        negatives = log_density.flatten()
 
-        auc = _general_auc(positives, negatives)
-
-        return torch.tensor(auc)
+        return _general_auc(positives, negatives)
 
     return torch.mean(weights.cpu() * torch.tensor([
-        image_auc(log_density[i], fixation_mask[i]) for i in range(log_density.shape[0])
+        image_auc(log_density[i], dense_mask[i]) for i in range(log_density.shape[0])
     ]))

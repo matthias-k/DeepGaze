@@ -288,7 +288,7 @@ class FixationMaskTransform(object):
         inds = np.array([y, x])
         values = np.ones(len(y), dtype=int)
 
-        mask = torch.sparse.IntTensor(torch.tensor(inds), torch.tensor(values), shape)
+        mask = torch.sparse_coo_tensor(torch.tensor(inds), torch.tensor(values), shape)
         mask = mask.coalesce()
         # sparse tensors don't work with workers...
         if not self.sparse:

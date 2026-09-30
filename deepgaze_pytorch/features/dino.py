@@ -6,11 +6,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-try:
-    from einops import rearrange
-except ImportError:
-    raise ImportError("einops is required for DINOv2 feature extractors. Install with: pip install einops")
-
 from .normalizer import Normalizer
 
 
@@ -66,8 +61,8 @@ class DINOTransformersFeatureExtractor(nn.Module):
 
         # Reshape transformer output from (B, N, C) to (B, C, H, W)
         for target in self.targets:
-            # Remove CLS token (first token) and reshape
-            self.outputs[target] = rearrange(self.outputs[target][:, 1:, :], 'b (h w) c -> b h w c', h=h_, w=w_)
-            self.outputs[target] = rearrange(self.outputs[target], 'b h w c -> b c h w')
+            # Remove CLS token (first token); patch tokens are in row-major (h, w) order
+            tokens = self.outputs[target][:, 1:, :]
+            self.outputs[target] = tokens.reshape(tokens.shape[0], h_, w_, tokens.shape[2]).permute(0, 3, 1, 2)
 
         return [self.outputs[target] for target in self.targets]
