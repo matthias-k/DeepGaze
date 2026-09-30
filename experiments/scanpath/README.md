@@ -162,13 +162,17 @@ model trained on original images minus the model trained on stretched ones:
 | MIT1003 folds 0-2 | **+0.024 (0.016 to 0.033)** | +0.0008 (0.0004 to 0.0012) | +0.055 (0.036 to 0.074) | 183 of 303 |
 | OSIE (fold 0 models) | +0.061 (0.055 to 0.068) | +0.0016 | +0.16 | 530 of 700 |
 
-- **Significance.** On the three MIT1003 folds pooled, p = 5e-8 (t-test) and 1e-6 (Wilcoxon).
-  Training without stretching is better on every test fold. The effect is small but consistent.
+- **Run-to-run variation.** The original-image model of fold 0 was trained a second time with
+  `--seed 1`. On MIT1003 fold 0 it scores 0.018 bit lower than the seed-0 run (95% CI 0.006 to
+  0.030), the same as the seed-0 stretched model (-0.001, CI -0.017 to 0.014). On OSIE the two seeds
+  agree (-0.001, CI -0.006 to 0.004), and the seed-1 model is again above the stretched one, by 0.060
+  bit (0.052 to 0.069).
+- **Conclusion.** On OSIE, training without stretching is better by about 0.06 bit, and this holds
+  across seeds. On MIT1003 the pooled difference of +0.024 bit is about as large as the variation
+  between two training runs of the same recipe, so it is not established. The p-values of the table
+  (5e-8 pooled) cover only the variation over images.
 - **Reproduction.** The stretched variant reproduces the released DeepGaze III closely. On MIT1003
   fold 0 its IG is 1.439, against 1.466 for the released component 0. On OSIE it is 2.187, against
   2.179.
-- **What the intervals cover.** The confidence intervals cover the variation over images, not between
-  training runs. The three folds, each a separate pair of training runs with the same sign, bound
-  the latter only indirectly.
 - **DeepGaze III on DeepGaze MSDB.** Its scanpath part is trained on the original, unstretched images
   (`train_msdb_scanpath.py`), so this fix is already part of that model.
